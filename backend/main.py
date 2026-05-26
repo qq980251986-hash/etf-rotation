@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import pandas as pd
 
+from concurrent.futures import ThreadPoolExecutor
+
 from data.fetcher import get_industry_etf_quotes, fetch_etf_history
 from analytics.rotation import compute_rs_matrix, compute_rotation_signal
 from analytics.signals import build_signal_table, score_fund_flow, compute_composite_score, signal_label
@@ -185,6 +187,18 @@ def get_accumulation(period: str = "7d"):
     days = PERIOD_MAP.get(period, 7)
     quotes_df = get_industry_etf_quotes()
 
+    # 并行拉取所有 ETF 历史数据（IO 密集，5 路并行避免触发限流）
+    def _fetch_history(item):
+        sector, code = item
+        try:
+            return (sector, code, fetch_etf_history(code, days))
+        except Exception as e:
+            logger.debug(f"accumulation history failed for {sector}: {e}")
+            return (sector, code, None)
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        hist_map = {(s, c): h for s, c, h in pool.map(_fetch_history, INDUSTRY_ETFS.items())}
+
     results = []
     for sector, code in INDUSTRY_ETFS.items():
         # 当日资金流数据
@@ -231,54 +245,50 @@ def get_accumulation(period: str = "7d"):
         bottoming_label = "无明显信号"
         history_ok = False
 
-        try:
-            hist = fetch_etf_history(code, days)
-            if len(hist) >= days // 2 + 1:
-                history_ok = True
-                volumes = hist["成交额"] if "成交额" in hist.columns else pd.Series(dtype=float)
-                changes = hist["涨跌幅"]
+        hist = hist_map.get((sector, code))
+        if hist is not None and len(hist) >= days // 2 + 1:
+            history_ok = True
+            volumes = hist["成交额"] if "成交额" in hist.columns else pd.Series(dtype=float)
+            changes = hist["涨跌幅"]
 
-                # 因子3: 量价背离 — 当日放量但价未涨（权重25）
-                if len(volumes) >= 3 and len(changes) >= 1:
-                    vol_today = float(volumes.iloc[-1]) if pd.notna(volumes.iloc[-1]) else 0
-                    vol_avg = float(volumes.iloc[:-1].mean()) if len(volumes) > 1 else 0
-                    if vol_avg > 0 and vol_today > vol_avg * 1.5 and abs(change_pct) < 1.5:
-                        volume_price_score = 25
-                        volume_price_label = "放量滞涨"
-                    elif vol_avg > 0 and vol_today > vol_avg * 1.2 and change_pct < 0:
-                        volume_price_score = 18
-                        volume_price_label = "放量不跌"
-                    elif vol_avg > 0 and vol_today < vol_avg * 0.7:
-                        volume_price_score = 5
-                        volume_price_label = "缩量"
-                    else:
-                        volume_price_score = 8
-                        volume_price_label = "正常"
+            # 因子3: 量价背离 — 当日放量但价未涨（权重25）
+            if len(volumes) >= 3 and len(changes) >= 1:
+                vol_today = float(volumes.iloc[-1]) if pd.notna(volumes.iloc[-1]) else 0
+                vol_avg = float(volumes.iloc[:-1].mean()) if len(volumes) > 1 else 0
+                if vol_avg > 0 and vol_today > vol_avg * 1.5 and abs(change_pct) < 1.5:
+                    volume_price_score = 25
+                    volume_price_label = "放量滞涨"
+                elif vol_avg > 0 and vol_today > vol_avg * 1.2 and change_pct < 0:
+                    volume_price_score = 18
+                    volume_price_label = "放量不跌"
+                elif vol_avg > 0 and vol_today < vol_avg * 0.7:
+                    volume_price_score = 5
+                    volume_price_label = "缩量"
+                else:
+                    volume_price_score = 8
+                    volume_price_label = "正常"
 
-                # 因子4: 底部企稳 — 前半段跌幅 > 后半段，后半段放量（权重20）
-                mid = len(changes) // 2
-                if mid >= 2:
-                    first_half_change = float(changes.iloc[:mid].sum())
-                    second_half_change = float(changes.iloc[mid:].sum())
-                    first_half_vol = float(volumes.iloc[:mid].mean()) if len(volumes) >= mid else 0
-                    second_half_vol = float(volumes.iloc[mid:].mean()) if len(volumes) >= mid else 0
+            # 因子4: 底部企稳 — 前半段跌幅 > 后半段，后半段放量（权重20）
+            mid = len(changes) // 2
+            if mid >= 2:
+                first_half_change = float(changes.iloc[:mid].sum())
+                second_half_change = float(changes.iloc[mid:].sum())
+                first_half_vol = float(volumes.iloc[:mid].mean()) if len(volumes) >= mid else 0
+                second_half_vol = float(volumes.iloc[mid:].mean()) if len(volumes) >= mid else 0
 
-                    if first_half_change < second_half_change and second_half_vol > first_half_vol * 1.1:
-                        strength = min(1.0, abs(first_half_change - second_half_change) / max(abs(first_half_change), 1))
-                        bottoming_score = round(20 * strength, 1)
-                        bottoming_label = "止跌放量"
-                    elif second_half_change > 0 and first_half_vol > 0 and second_half_vol > first_half_vol:
-                        bottoming_score = 10
-                        bottoming_label = "温和反弹"
-                    else:
-                        bottoming_score = 3
-                        bottoming_label = "无明显信号"
-        except Exception as e:
-            logger.debug(f"accumulation history failed for {sector}: {e}")
+                if first_half_change < second_half_change and second_half_vol > first_half_vol * 1.1:
+                    strength = min(1.0, abs(first_half_change - second_half_change) / max(abs(first_half_change), 1))
+                    bottoming_score = round(20 * strength, 1)
+                    bottoming_label = "止跌放量"
+                elif second_half_change > 0 and first_half_vol > 0 and second_half_vol > first_half_vol:
+                    bottoming_score = 10
+                    bottoming_label = "温和反弹"
+                else:
+                    bottoming_score = 3
+                    bottoming_label = "无明显信号"
 
         # 历史数据不可用时，用当日数据做降级分析
         if not history_ok:
-            # 因子3降级: 当日资金流入但价格没大涨 = 建仓特征
             if big_total > 0 and abs(change_pct) < 1.5:
                 volume_price_score = 20
                 volume_price_label = "资金流入价稳"
@@ -292,17 +302,13 @@ def get_accumulation(period: str = "7d"):
                 volume_price_score = 3
                 volume_price_label = "无明显信号"
 
-            # 因子4降级: 当日涨跌幅 + 超大单方向判断
             if change_pct < -0.5 and huge_yi > 0:
-                # 价格下跌但超大单在买 = 逢低吸筹
                 bottoming_score = 15
                 bottoming_label = "逢低吸筹"
             elif abs(change_pct) < 0.5 and big_total > 0:
-                # 横盘且大资金流入 = 悄悄建仓
                 bottoming_score = 12
                 bottoming_label = "横盘吸筹"
             elif change_pct > 0 and small_yi < 0:
-                # 散户在卖但价格在涨 = 主力承接
                 bottoming_score = 10
                 bottoming_label = "主力承接"
             else:

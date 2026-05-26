@@ -74,6 +74,7 @@ def fetch_etf_quotes() -> pd.DataFrame:
 
 # ---- 历史K线（TTL 1h）----
 
+@lru_cache(maxsize=128)
 def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
     key = f"hist_{symbol}_{days}"
 
