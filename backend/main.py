@@ -2,8 +2,8 @@
 
 import sys
 import os
+import logging
 
-# 确保 import 路径正确
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
@@ -14,7 +14,9 @@ import pandas as pd
 
 from data.fetcher import get_industry_etf_quotes, fetch_etf_history
 from analytics.rotation import compute_rs_matrix, compute_rotation_signal
-from analytics.signals import build_signal_table
+from analytics.signals import build_signal_table, score_fund_flow, compute_composite_score, signal_label
+
+logger = logging.getLogger("etf")
 
 app = FastAPI(title="ETF 轮动监测 API")
 
@@ -52,19 +54,55 @@ def get_quotes():
 @app.get("/api/rs-matrix")
 def get_rs_matrix():
     """RS 矩阵 + 轮动方向"""
-    rs_df = compute_rs_matrix()
-    rs_df = compute_rotation_signal(rs_df)
-    return rs_df.fillna("").to_dict(orient="index")
+    try:
+        rs_df = compute_rs_matrix()
+        rs_df = compute_rotation_signal(rs_df)
+        return rs_df.fillna("").to_dict(orient="index")
+    except Exception as e:
+        logger.warning(f"RS matrix failed: {e}")
+        return {}
 
 
 @app.get("/api/signals")
 def get_signals():
-    """综合信号表"""
+    """综合信号表（RS 失败时降级为纯资金流信号）"""
+    from data.etf_list import INDUSTRY_ETFS
+
     quotes_df = get_industry_etf_quotes()
-    rs_df = compute_rs_matrix()
-    rs_df = compute_rotation_signal(rs_df)
-    signal_table = build_signal_table(rs_df, quotes_df)
-    return signal_table.fillna("").to_dict(orient="records")
+
+    try:
+        rs_df = compute_rs_matrix()
+        rs_df = compute_rotation_signal(rs_df)
+        signal_table = build_signal_table(rs_df, quotes_df)
+        return signal_table.fillna("").to_dict(orient="records")
+    except Exception as e:
+        logger.warning(f"RS calculation failed, fallback to flow-only: {e}")
+        rows = []
+        for _, row in quotes_df.iterrows():
+            flow_col = "主力净流入-净额(亿)"
+            flow = row.get(flow_col, 0)
+            if pd.isna(flow):
+                flow = 0
+            fs = score_fund_flow(flow)
+            comp = compute_composite_score(fs, 50.0)
+            label, icon = signal_label(comp)
+            share = row.get("最新份额", 0)
+            rows.append({
+                "板块": row.get("sector", ""),
+                "RS_5d": None,
+                "RS_10d": None,
+                "RS_20d": None,
+                "方向": "-",
+                "RS得分": 50.0,
+                "主力净流入(亿)": round(flow, 2),
+                "份额(亿份)": round(share / 1e8, 2) if pd.notna(share) and share else 0,
+                "涨跌幅(%)": row.get("涨跌幅", ""),
+                "资金流得分": fs,
+                "综合评分": comp,
+                "信号": f"{icon} {label}",
+            })
+        result = pd.DataFrame(rows).sort_values("综合评分", ascending=False).reset_index(drop=True)
+        return result.fillna("").to_dict(orient="records")
 
 
 @app.get("/api/history/{code}")
@@ -74,7 +112,6 @@ def get_history(code: str, days: int = 30):
     return df.fillna("").to_dict(orient="records")
 
 
-# 生产环境：托管 React 静态文件
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
 if os.path.isdir(STATIC_DIR):
     app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")

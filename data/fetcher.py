@@ -54,6 +54,17 @@ def _cached_fetch(key: str, ttl_seconds: int, fetch_fn):
     return df
 
 
+def _retry(fn, retries=3, delay=2):
+    """简单重试包装"""
+    for i in range(retries):
+        try:
+            return fn()
+        except Exception:
+            if i == retries - 1:
+                raise
+            time.sleep(delay)
+
+
 # ---- 实时行情（TTL 5min）----
 
 @lru_cache(maxsize=1)
@@ -69,10 +80,10 @@ def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
     def _fetch():
         end_date = datetime.date.today().strftime("%Y%m%d")
         start_date = (datetime.date.today() - datetime.timedelta(days=days * 2)).strftime("%Y%m%d")
-        df = ak.fund_etf_hist_em(
+        df = _retry(lambda: ak.fund_etf_hist_em(
             symbol=symbol, period="daily",
             start_date=start_date, end_date=end_date, adjust="qfq",
-        )
+        ), retries=3, delay=2)
         df["日期"] = pd.to_datetime(df["日期"])
         df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
         df["收盘"] = pd.to_numeric(df["收盘"], errors="coerce")
