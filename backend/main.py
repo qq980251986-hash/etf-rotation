@@ -3,6 +3,7 @@
 import sys
 import os
 import logging
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -12,9 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import pandas as pd
 
-from concurrent.futures import ThreadPoolExecutor
-
-from data.fetcher import get_industry_etf_quotes, fetch_etf_history
+from data.fetcher import get_industry_etf_quotes, fetch_etf_history, warm_up, start_background_refresh
 from data.share_tracker import save_share_snapshot, get_share_changes
 from analytics.rotation import compute_rs_matrix, compute_rotation_signal
 from analytics.signals import build_signal_table, score_fund_flow, compute_composite_score, signal_label
@@ -210,6 +209,9 @@ def get_share_changes_api(days: int = 5):
         })
     out.sort(key=lambda x: x["change_pct"], reverse=True)
     return out
+
+
+@app.get("/api/history/{code}")
 def get_history(code: str, days: int = 30):
     """单只 ETF 历史 K 线"""
     df = fetch_etf_history(code, days)
@@ -245,17 +247,13 @@ def get_accumulation(period: str = "7d"):
     days = PERIOD_MAP.get(period, 7)
     quotes_df = get_industry_etf_quotes()
 
-    # 并行拉取所有 ETF 历史数据（IO 密集，5 路并行避免触发限流）
-    def _fetch_history(item):
-        sector, code = item
+    # 从缓存拉取历史数据（预热后全部在内存）
+    hist_map = {}
+    for sector, code in INDUSTRY_ETFS.items():
         try:
-            return (sector, code, fetch_etf_history(code, days))
-        except Exception as e:
-            logger.debug(f"accumulation history failed for {sector}: {e}")
-            return (sector, code, None)
-
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        hist_map = {(s, c): h for s, c, h in pool.map(_fetch_history, INDUSTRY_ETFS.items())}
+            hist_map[(sector, code)] = fetch_etf_history(code, days)
+        except Exception:
+            hist_map[(sector, code)] = None
 
     results = []
     for sector, code in INDUSTRY_ETFS.items():
@@ -405,6 +403,13 @@ def get_accumulation(period: str = "7d"):
 
     results.sort(key=lambda x: x["accum_score"], reverse=True)
     return results
+
+
+@app.on_event("startup")
+def on_startup():
+    """服务启动时：后台线程预热缓存 + 定时刷新"""
+    threading.Thread(target=warm_up, daemon=True).start()
+    start_background_refresh(interval_minutes=30)
 
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")

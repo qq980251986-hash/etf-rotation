@@ -1,9 +1,11 @@
-"""AKShare 数据获取层 — 磁盘缓存（无框架依赖）"""
+"""AKShare 数据获取层 — 磁盘缓存 + 启动预热 + 后台定时刷新"""
 
 import datetime
 import json
+import logging
 import os
 import pathlib
+import threading
 import time
 from functools import lru_cache
 
@@ -22,6 +24,7 @@ requests.utils.getproxies = lambda *_, **__: {}
 
 _CACHE_DIR = pathlib.Path(__file__).parent.parent / ".cache"
 _CACHE_DIR.mkdir(exist_ok=True)
+_logger = logging.getLogger("etf.fetcher")
 
 
 def _read_disk_cache(key: str, ttl_seconds: int):
@@ -54,8 +57,7 @@ def _cached_fetch(key: str, ttl_seconds: int, fetch_fn):
     return df
 
 
-def _retry(fn, retries=3, delay=2):
-    """简单重试包装"""
+def _retry(fn, retries=2, delay=3):
     for i in range(retries):
         try:
             return fn()
@@ -65,14 +67,14 @@ def _retry(fn, retries=3, delay=2):
             time.sleep(delay)
 
 
-# ---- 实时行情（TTL 5min）----
+# ---- 实时行情（TTL 30min）----
 
 @lru_cache(maxsize=1)
 def fetch_etf_quotes() -> pd.DataFrame:
-    return _cached_fetch("etf_quotes_all", 300, ak.fund_etf_spot_em)
+    return _cached_fetch("etf_quotes_all", 1800, ak.fund_etf_spot_em)
 
 
-# ---- 历史K线（TTL 1h）----
+# ---- 历史K线（TTL 4h）----
 
 @lru_cache(maxsize=128)
 def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
@@ -84,13 +86,13 @@ def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
         df = _retry(lambda: ak.fund_etf_hist_em(
             symbol=symbol, period="daily",
             start_date=start_date, end_date=end_date, adjust="qfq",
-        ), retries=3, delay=2)
+        ), retries=2, delay=3)
         df["日期"] = pd.to_datetime(df["日期"])
         df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
         df["收盘"] = pd.to_numeric(df["收盘"], errors="coerce")
         return df.sort_values("日期").tail(days)
 
-    return _cached_fetch(key, 3600, _fetch)
+    return _cached_fetch(key, 14400, _fetch)
 
 
 @lru_cache(maxsize=4)
@@ -133,3 +135,61 @@ def get_benchmark_quotes() -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
+
+
+# ---- 预热 + 后台定时刷新 ----
+
+def warm_up():
+    """启动时串行预热所有缓存（带间隔避免限流）"""
+    _logger.info("开始预热缓存...")
+
+    try:
+        fetch_etf_quotes()
+        _logger.info("行情缓存就绪")
+    except Exception as e:
+        _logger.warning(f"行情预热失败: {e}")
+
+    from data.etf_list import RS_BENCHMARK
+    all_codes = list(INDUSTRY_ETFS.values()) + [RS_BENCHMARK]
+    success = 0
+    for code in all_codes:
+        try:
+            fetch_etf_history(code, 30)
+            fetch_etf_history(code, 90)
+            success += 1
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    _logger.info(f"历史缓存就绪: {success}/{len(all_codes)}")
+
+
+def _refresh_loop(interval_minutes: int = 30):
+    """后台定时刷新缓存"""
+    while True:
+        time.sleep(interval_minutes * 60)
+        _logger.info("开始定时刷新缓存...")
+        try:
+            fetch_etf_quotes.cache_clear()
+            fetch_etf_history.cache_clear()
+            fetch_benchmark_history.cache_clear()
+
+            fetch_etf_quotes()
+            from data.etf_list import RS_BENCHMARK
+            for code in list(INDUSTRY_ETFS.values()) + [RS_BENCHMARK]:
+                try:
+                    fetch_etf_history(code, 30)
+                    fetch_etf_history(code, 90)
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            _logger.info("定时刷新完成")
+        except Exception as e:
+            _logger.warning(f"定时刷新失败: {e}")
+
+
+def start_background_refresh(interval_minutes: int = 30):
+    """启动后台刷新线程（daemon，随主进程退出）"""
+    t = threading.Thread(target=_refresh_loop, args=(interval_minutes,), daemon=True)
+    t.start()
+    _logger.info(f"后台刷新已启动（每 {interval_minutes} 分钟）")
