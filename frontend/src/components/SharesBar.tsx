@@ -37,9 +37,12 @@ export function SharesBar({ signals, loading }: Props) {
           formatter: (params: any) => {
             const p = params[0];
             const item = sorted[p.dataIndex];
+            const sc = item.shares_change ?? 0;
+            const scp = item.shares_change_pct ?? 0;
             return `<b>${item.sector}</b><br/>`
               + `份额: <b>${(item.shares_yi ?? 0).toFixed(1)}</b> 亿份<br/>`
               + `规模: <b>${(item.market_cap_yi ?? 0).toFixed(1)}</b> 亿<br/>`
+              + (scp !== 0 ? `份额变化: ${sc > 0 ? '+' : ''}${sc.toFixed(2)} 亿份 (${scp > 0 ? '+' : ''}${scp.toFixed(1)}%)<br/>` : '')
               + `涨跌幅: ${(item.change_pct ?? 0) > 0 ? '+' : ''}${(item.change_pct ?? 0).toFixed(2)}%`;
           },
         },

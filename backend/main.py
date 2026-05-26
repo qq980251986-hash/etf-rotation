@@ -15,8 +15,10 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 
 from data.fetcher import get_industry_etf_quotes, fetch_etf_history
+from data.share_tracker import save_share_snapshot, get_share_changes
 from analytics.rotation import compute_rs_matrix, compute_rotation_signal
 from analytics.signals import build_signal_table, score_fund_flow, compute_composite_score, signal_label
+from analytics.backtest import run_backtest
 from data.etf_list import INDUSTRY_ETFS
 
 logger = logging.getLogger("etf")
@@ -34,7 +36,8 @@ app.add_middleware(
 def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
                       direction="-", rs_score=50.0, flow_yi=0.0,
                       shares_yi=0.0, change_pct=0.0, flow_score=50.0,
-                      market_cap_yi=0.0, signal_text=""):
+                      market_cap_yi=0.0, shares_change=0.0, shares_change_pct=0.0,
+                      signal_text=""):
     comp = compute_composite_score(flow_score, rs_score)
     if not signal_text:
         label, icon = signal_label(comp)
@@ -53,6 +56,8 @@ def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
         "composite_score": comp,
         "signal": signal_text,
         "market_cap_yi": round(market_cap_yi, 2),
+        "shares_change": round(shares_change, 2),
+        "shares_change_pct": round(shares_change_pct, 2),
     }
 
 
@@ -118,12 +123,25 @@ def get_signals():
     """综合信号表"""
     quotes_df = get_industry_etf_quotes()
 
+    # 自动保存当日份额快照
+    try:
+        save_share_snapshot(quotes_df)
+    except Exception:
+        pass
+
     try:
         rs_df = compute_rs_matrix()
         rs_df = compute_rotation_signal(rs_df)
     except Exception as e:
         logger.warning(f"RS failed, fallback: {e}")
         rs_df = None
+
+    # 获取份额变化
+    try:
+        changes_df = get_share_changes(days=5)
+        changes_map = {row["code"]: row for _, row in changes_df.iterrows()} if not changes_df.empty else {}
+    except Exception:
+        changes_map = {}
 
     results = []
     for sector, code in INDUSTRY_ETFS.items():
@@ -138,6 +156,11 @@ def get_signals():
             shares_yi = float(r.get("最新份额", 0) or 0) / 1e8
             change_pct = float(r.get("涨跌幅", 0) or 0)
             market_cap_yi = float(r.get("流通市值", 0) or 0) / 1e8
+
+        # 份额变化（亿份）
+        sc = changes_map.get(code, {})
+        shares_change = float(sc.get("change", 0) or 0) / 1e8
+        shares_change_pct = float(sc.get("change_pct", 0) or 0)
 
         rs_5d = rs_10d = rs_20d = None
         direction = "-"
@@ -160,7 +183,8 @@ def get_signals():
             sector=sector, rs_5d=rs_5d, rs_10d=rs_10d, rs_20d=rs_20d,
             direction=direction, rs_score=rs_score, flow_yi=flow_yi,
             shares_yi=shares_yi, change_pct=change_pct, flow_score=flow_score,
-            market_cap_yi=market_cap_yi, signal_text=f"{icon} {label}",
+            market_cap_yi=market_cap_yi, shares_change=shares_change,
+            shares_change_pct=shares_change_pct, signal_text=f"{icon} {label}",
         ))
         results[-1]["composite_score"] = comp
 
@@ -168,7 +192,24 @@ def get_signals():
     return results
 
 
-@app.get("/api/history/{code}")
+@app.get("/api/share-changes")
+def get_share_changes_api(days: int = 5):
+    """ETF 份额变动（申赎追踪）"""
+    df = get_share_changes(days)
+    if df.empty:
+        return []
+    out = []
+    for _, row in df.iterrows():
+        out.append({
+            "sector": row["sector"],
+            "code": row["code"],
+            "shares_now_yi": round(row["shares_now"] / 1e8, 2),
+            "shares_prev_yi": round(row["shares_prev"] / 1e8, 2),
+            "change_yi": round(row["change"] / 1e8, 2),
+            "change_pct": row["change_pct"],
+        })
+    out.sort(key=lambda x: x["change_pct"], reverse=True)
+    return out
 def get_history(code: str, days: int = 30):
     """单只 ETF 历史 K 线"""
     df = fetch_etf_history(code, days)
@@ -180,6 +221,19 @@ def get_history(code: str, days: int = 30):
             "change_pct": float(row["涨跌幅"]),
         })
     return out
+
+
+@app.get("/api/backtest")
+def get_backtest(period: int = 20, hold: int = 5, top_n: int = 5):
+    """动量轮动策略回测"""
+    result = run_backtest(period_days=period, hold_days=hold, top_n=top_n)
+    return {
+        "nav": result.nav,
+        "dates": result.dates,
+        "benchmark_nav": result.benchmark_nav,
+        "trades": result.trades,
+        "metrics": result.metrics,
+    }
 
 
 PERIOD_MAP = {"7d": 7, "1m": 30, "3m": 90}

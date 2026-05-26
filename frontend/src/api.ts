@@ -14,6 +14,8 @@ export interface Signal {
   composite_score: number;
   signal: string;
   market_cap_yi: number;
+  shares_change: number;
+  shares_change_pct: number;
 }
 
 export interface Accumulation {
@@ -43,6 +45,28 @@ export async function fetchSignals(): Promise<Signal[]> {
 
 export async function fetchAccumulation(period: string): Promise<Accumulation[]> {
   const res = await fetch(`${BASE}/accumulation?period=${period}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export interface BacktestResult {
+  nav: number[];
+  dates: string[];
+  benchmark_nav: number[];
+  trades: { date: string; sold: string[]; bought: string[]; holding: string[] }[];
+  metrics: {
+    total_return: number;
+    annual_return: number;
+    max_drawdown: number;
+    sharpe: number;
+    trade_count: number;
+    trading_days: number;
+    benchmark_return: number;
+  };
+}
+
+export async function fetchBacktest(period: number, hold: number, topN: number): Promise<BacktestResult> {
+  const res = await fetch(`${BASE}/backtest?period=${period}&hold=${hold}&top_n=${topN}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

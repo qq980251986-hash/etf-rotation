@@ -6,14 +6,16 @@ import { SharesBar } from './components/SharesBar';
 import { FlowChart } from './components/FlowChart';
 import { SignalTable } from './components/SignalTable';
 import { AccumulationChart } from './components/AccumulationChart';
+import { BacktestChart } from './components/BacktestChart';
 
-type Tab = 'heatmap' | 'shares' | 'flow' | 'accumulation';
+type Tab = 'heatmap' | 'shares' | 'flow' | 'accumulation' | 'backtest';
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'heatmap', label: '轮动热力图' },
   { key: 'shares', label: '份额变动' },
   { key: 'flow', label: '资金流向' },
   { key: 'accumulation', label: '主力建仓' },
+  { key: 'backtest', label: '策略回测' },
 ];
 
 export default function App() {
@@ -89,6 +91,7 @@ export default function App() {
           {activeTab === 'shares' && <SharesBar signals={signals} loading={loading} />}
           {activeTab === 'flow' && <FlowChart signals={signals} loading={loading} />}
           {activeTab === 'accumulation' && <AccumulationChart />}
+          {activeTab === 'backtest' && <BacktestChart />}
         </div>
         <div className="mt-4">
           <SignalTable signals={signals} loading={loading} />
