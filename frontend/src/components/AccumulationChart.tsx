@@ -27,6 +27,8 @@ function barColor(score: number): string {
   return '#334155';
 }
 
+const _cache = new Map<string, Accumulation[]>();
+
 export function AccumulationChart() {
   const [period, setPeriod] = useState('7d');
   const [data, setData] = useState<Accumulation[]>([]);
@@ -36,11 +38,21 @@ export function AccumulationChart() {
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
   useEffect(() => {
+    if (_cache.has(period)) {
+      setData(_cache.get(period)!);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError('');
     fetchAccumulation(period)
-      .then((d) => { if (!cancelled) setData(d); })
+      .then((d) => {
+        if (!cancelled) {
+          _cache.set(period, d);
+          setData(d);
+        }
+      })
       .catch(() => { if (!cancelled) setError('数据加载失败'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

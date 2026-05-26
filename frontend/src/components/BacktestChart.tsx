@@ -32,6 +32,8 @@ function MetricCard({ label, value, suffix = '', color = '' }: { label: string; 
   );
 }
 
+const _cache = new Map<string, BacktestResult>();
+
 export function BacktestChart() {
   const [period, setPeriod] = useState(20);
   const [hold, setHold] = useState(5);
@@ -43,12 +45,19 @@ export function BacktestChart() {
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
   useEffect(() => {
+    const key = `${period}_${hold}_${topN}`;
+    if (_cache.has(key)) {
+      setData(_cache.get(key)!);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError('');
     fetchBacktest(period, hold, topN)
       .then((d) => {
         if (!cancelled) {
+          _cache.set(key, d);
           setData(d);
           if (d.nav.length === 0) setError('数据不足，无法回测');
         }
