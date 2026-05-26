@@ -15,6 +15,7 @@ import pandas as pd
 
 from data.fetcher import get_industry_etf_quotes, fetch_etf_history, warm_up, start_background_refresh
 from data.share_tracker import save_share_snapshot, get_share_changes
+from data.prediction_tracker import save_prediction_snapshot, get_prediction_accuracy
 from analytics.rotation import compute_rs_matrix, compute_rotation_signal
 from analytics.signals import build_signal_table, score_fund_flow, compute_composite_score, signal_label
 from analytics.backtest import run_backtest
@@ -402,10 +403,20 @@ def get_accumulation(period: str = "7d"):
         })
 
     results.sort(key=lambda x: x["accum_score"], reverse=True)
+
+    # 保存预测快照
+    try:
+        save_prediction_snapshot(results)
+    except Exception:
+        pass
+
     return results
 
 
-@app.on_event("startup")
+@app.get("/api/prediction-accuracy")
+def get_pred_accuracy(forward_days: int = 5):
+    """建仓预测准确率统计"""
+    return get_prediction_accuracy(forward_days)
 def on_startup():
     """服务启动时：后台线程预热缓存 + 定时刷新"""
     threading.Thread(target=warm_up, daemon=True).start()

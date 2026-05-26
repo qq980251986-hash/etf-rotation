@@ -3,7 +3,7 @@ import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import { fetchAccumulation, type Accumulation } from '../api';
+import { fetchAccumulation, fetchPredictionAccuracy, type Accumulation, type PredictionAccuracy } from '../api';
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -34,6 +34,7 @@ export function AccumulationChart() {
   const [data, setData] = useState<Accumulation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [accuracy, setAccuracy] = useState<PredictionAccuracy | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
@@ -56,6 +57,10 @@ export function AccumulationChart() {
       .catch(() => { if (!cancelled) setError('数据加载失败'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [period]);
+
+  useEffect(() => {
+    fetchPredictionAccuracy(5).then(setAccuracy).catch(() => {});
   }, [period]);
 
   useEffect(() => {
@@ -160,6 +165,46 @@ export function AccumulationChart() {
         </div>
       ) : (
         <div ref={chartRef} style={{ height: Math.max(350, data.length * 26 + 40), width: '100%' }} />
+      )}
+
+      {/* 预测准确率 */}
+      {accuracy && accuracy.total > 0 && (
+        <div className="mt-5">
+          <h3 className="text-sm font-medium text-text-secondary mb-3">预测准确率（后5日验证）</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            <div className="bg-bg-primary rounded-lg border border-border p-3 text-center">
+              <div className="text-xs text-text-muted mb-1">总预测次数</div>
+              <div className="text-lg font-semibold text-text-primary tabular-nums">{accuracy.total}</div>
+            </div>
+            <div className="bg-bg-primary rounded-lg border border-border p-3 text-center">
+              <div className="text-xs text-text-muted mb-1">整体准确率</div>
+              <div className={`text-lg font-semibold tabular-nums ${accuracy.accuracy >= 60 ? 'text-accent-gold' : accuracy.accuracy >= 40 ? 'text-text-secondary' : 'text-accent-red'}`}>
+                {accuracy.accuracy}%
+              </div>
+            </div>
+            <div className="bg-bg-primary rounded-lg border border-border p-3 text-center">
+              <div className="text-xs text-text-muted mb-1">命中</div>
+              <div className="text-lg font-semibold text-accent-green tabular-nums">{accuracy.correct}</div>
+            </div>
+            <div className="bg-bg-primary rounded-lg border border-border p-3 text-center">
+              <div className="text-xs text-text-muted mb-1">未命中</div>
+              <div className="text-lg font-semibold text-accent-red tabular-nums">{accuracy.total - accuracy.correct}</div>
+            </div>
+          </div>
+          {Object.keys(accuracy.by_label).length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(accuracy.by_label).map(([label, stat]) => (
+                <div key={label} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-primary border border-border text-xs">
+                  <span className="text-text-secondary">{label}</span>
+                  <span className="text-text-muted">({stat.total}次)</span>
+                  <span className={`font-medium tabular-nums ${stat.accuracy >= 60 ? 'text-accent-gold' : 'text-text-muted'}`}>
+                    {stat.accuracy}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* 因子明细表 */}

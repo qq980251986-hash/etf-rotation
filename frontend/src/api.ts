@@ -70,3 +70,16 @@ export async function fetchBacktest(period: number, hold: number, topN: number):
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
+
+export interface PredictionAccuracy {
+  total: number;
+  correct: number;
+  accuracy: number;
+  by_label: Record<string, { total: number; correct: number; accuracy: number }>;
+}
+
+export async function fetchPredictionAccuracy(forwardDays: number = 5): Promise<PredictionAccuracy> {
+  const res = await fetch(`${BASE}/prediction-accuracy?forward_days=${forwardDays}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
