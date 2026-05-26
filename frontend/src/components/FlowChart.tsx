@@ -18,9 +18,9 @@ export function FlowChart({ signals, loading }: Props) {
       instanceRef.current = echarts.init(chartRef.current, 'dark');
     }
 
-    const sorted = [...signals].sort((a, b) => (a.主力净流入_亿 ?? 0) - (b.主力净流入_亿 ?? 0));
-    const sectors = sorted.map((s) => s.板块);
-    const flows = sorted.map((s) => s.主力净流入_亿 ?? 0);
+    const sorted = [...signals].sort((a, b) => a.flow_yi - b.flow_yi);
+    const sectors = sorted.map((s) => s.sector);
+    const flows = sorted.map((s) => s.flow_yi);
 
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',

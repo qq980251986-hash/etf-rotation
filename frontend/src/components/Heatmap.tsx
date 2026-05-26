@@ -18,37 +18,29 @@ export function Heatmap({ signals, loading }: Props) {
       instanceRef.current = echarts.init(chartRef.current, 'dark');
     }
 
-    const sectors = signals.map((s) => s.板块).reverse();
+    const sectors = signals.map((s) => s.sector).reverse();
     const periods = ['5日', '10日', '20日'];
 
     const data: [number, number, number][] = [];
     signals.forEach((s, i) => {
-      const rs5 = s.RS_5d ?? 0;
-      const rs10 = s.RS_10d ?? 0;
-      const rs20 = s.RS_20d ?? 0;
       const ri = signals.length - 1 - i;
-      data.push([0, ri, rs5]);
-      data.push([1, ri, rs10]);
-      data.push([2, ri, rs20]);
+      data.push([0, ri, s.rs_5d ?? 0]);
+      data.push([1, ri, s.rs_10d ?? 0]);
+      data.push([2, ri, s.rs_20d ?? 0]);
     });
 
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
       tooltip: {
         formatter: (p: unknown) => {
-          const params = p as { data: number[]; name: string };
+          const params = p as { data: number[] };
           const sectorIdx = params.data[1];
           const periodIdx = params.data[0];
           const val = params.data[2];
           return `<b>${sectors[sectorIdx]}</b> ${periods[periodIdx]}<br/>RS: <b>${val.toFixed(3)}</b>`;
         },
       },
-      grid: {
-        left: 90,
-        right: 40,
-        top: 20,
-        bottom: 40,
-      },
+      grid: { left: 90, right: 40, top: 20, bottom: 40 },
       xAxis: {
         type: 'category',
         data: periods,
@@ -80,22 +72,17 @@ export function Heatmap({ signals, loading }: Props) {
         label: {
           show: true,
           formatter: (p: unknown) => {
-            const params = p as { data: number[] };
-            const v = params.data[2];
+            const v = (p as { data: number[] }).data[2];
             return v ? v.toFixed(2) : '';
           },
           color: '#e2e8f0',
           fontSize: 10,
         },
-        itemStyle: {
-          borderWidth: 2,
-          borderColor: '#0a0e17',
-        },
+        itemStyle: { borderWidth: 2, borderColor: '#0a0e17' },
       }],
     };
 
     instanceRef.current.setOption(option, true);
-
     const onResize = () => instanceRef.current?.resize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);

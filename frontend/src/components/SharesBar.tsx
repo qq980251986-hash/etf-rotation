@@ -18,9 +18,9 @@ export function SharesBar({ signals, loading }: Props) {
       instanceRef.current = echarts.init(chartRef.current, 'dark');
     }
 
-    const sorted = [...signals].sort((a, b) => (a.份额_亿份 ?? 0) - (b.份额_亿份 ?? 0));
-    const sectors = sorted.map((s) => s.板块);
-    const shares = sorted.map((s) => s.份额_亿份 ?? 0);
+    const sorted = [...signals].sort((a, b) => a.shares_yi - b.shares_yi);
+    const sectors = sorted.map((s) => s.sector);
+    const shares = sorted.map((s) => s.shares_yi);
 
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
@@ -53,7 +53,7 @@ export function SharesBar({ signals, loading }: Props) {
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
               { offset: 0, color: '#1e3a5f' },
-              { offset: 1, color: (sorted[i].涨跌幅 ?? 0) > 0 ? '#ef4444' : '#22c55e' },
+              { offset: 1, color: sorted[i].change_pct > 0 ? '#ef4444' : '#22c55e' },
             ]),
           },
         })),

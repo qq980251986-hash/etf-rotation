@@ -16,10 +16,10 @@ export function SignalCards({ signals, loading }: Props) {
     );
   }
 
-  const strong = signals.filter((s) => s.信号?.includes('强势流入'));
-  const moderate = signals.filter((s) => s.信号?.includes('温和流入'));
-  const neutral = signals.filter((s) => s.信号?.includes('中性'));
-  const outflow = signals.filter((s) => s.信号?.includes('流出'));
+  const strong = signals.filter((s) => s.signal.includes('强势流入'));
+  const moderate = signals.filter((s) => s.signal.includes('温和流入'));
+  const neutral = signals.filter((s) => s.signal.includes('中性'));
+  const outflow = signals.filter((s) => s.signal.includes('流出'));
 
   const cards = [
     {
@@ -27,23 +27,20 @@ export function SignalCards({ signals, loading }: Props) {
       count: strong.length,
       color: 'text-accent-red',
       border: 'border-accent-red/30',
-      glow: 'shadow-accent-red/5',
-      top: strong.slice(0, 3).map((s) => s.板块).join('、'),
+      top: strong.slice(0, 3).map((s) => s.sector).join('、'),
     },
     {
       label: '温和流入',
       count: moderate.length,
       color: 'text-accent-orange',
       border: 'border-accent-orange/30',
-      glow: 'shadow-accent-orange/5',
-      top: moderate.slice(0, 3).map((s) => s.板块).join('、'),
+      top: moderate.slice(0, 3).map((s) => s.sector).join('、'),
     },
     {
       label: '中性',
       count: neutral.length,
       color: 'text-text-secondary',
       border: 'border-border',
-      glow: '',
       top: '',
     },
     {
@@ -51,8 +48,7 @@ export function SignalCards({ signals, loading }: Props) {
       count: outflow.length,
       color: 'text-accent-green',
       border: 'border-accent-green/30',
-      glow: 'shadow-accent-green/5',
-      top: outflow.slice(0, 3).map((s) => s.板块).join('、'),
+      top: outflow.slice(0, 3).map((s) => s.sector).join('、'),
     },
   ];
 
@@ -61,7 +57,7 @@ export function SignalCards({ signals, loading }: Props) {
       {cards.map((card) => (
         <div
           key={card.label}
-          className={`rounded-xl border p-4 bg-bg-card ${card.border} ${card.glow} transition-all`}
+          className={`rounded-xl border p-4 bg-bg-card ${card.border} transition-all`}
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs text-text-muted font-medium">{card.label}</span>

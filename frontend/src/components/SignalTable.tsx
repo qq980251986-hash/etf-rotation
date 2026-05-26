@@ -43,48 +43,48 @@ export function SignalTable({ signals, loading }: Props) {
             <th className="text-right py-3 px-3 font-medium">主力净流入</th>
             <th className="text-right py-3 px-3 font-medium">份额(亿份)</th>
             <th className="text-center py-3 px-3 font-medium">方向</th>
-            <th className="text-right py-3 px-3 font-medium">综合评分</th>
+            <th className="text-right py-3 px-3 font-medium">评分</th>
             <th className="text-center py-3 px-4 font-medium">信号</th>
           </tr>
         </thead>
         <tbody>
           {signals.map((s, i) => (
             <tr
-              key={s.板块}
+              key={s.sector}
               className={`border-b border-border/50 hover:bg-bg-card-hover transition-colors ${
                 i < 3 ? 'bg-accent-gold/5' : ''
               }`}
             >
-              <td className="py-2.5 px-4 font-medium text-text-primary">{s.板块}</td>
-              <td className={`text-right py-2.5 px-3 tabular-nums ${flowColor(s.涨跌幅 ?? 0)}`}>
-                {(s.涨跌幅 ?? 0) > 0 ? '+' : ''}{(s.涨跌幅 ?? 0).toFixed(2)}%
+              <td className="py-2.5 px-4 font-medium text-text-primary">{s.sector}</td>
+              <td className={`text-right py-2.5 px-3 tabular-nums ${flowColor(s.change_pct ?? 0)}`}>
+                {(s.change_pct ?? 0) > 0 ? '+' : ''}{(s.change_pct ?? 0).toFixed(2)}%
               </td>
               <td className="text-right py-2.5 px-3 tabular-nums text-text-secondary">
-                {s.RS_5d != null ? s.RS_5d.toFixed(3) : '-'}
+                {s.rs_5d != null ? s.rs_5d.toFixed(3) : '-'}
               </td>
-              <td className={`text-right py-2.5 px-3 tabular-nums ${flowColor(s.主力净流入_亿 ?? 0)}`}>
-                {(s.主力净流入_亿 ?? 0) > 0 ? '+' : ''}{(s.主力净流入_亿 ?? 0).toFixed(2)}
+              <td className={`text-right py-2.5 px-3 tabular-nums ${flowColor(s.flow_yi ?? 0)}`}>
+                {(s.flow_yi ?? 0) > 0 ? '+' : ''}{(s.flow_yi ?? 0).toFixed(2)}
               </td>
               <td className="text-right py-2.5 px-3 tabular-nums text-text-secondary">
-                {(s.份额_亿份 ?? 0).toFixed(1)}
+                {(s.shares_yi ?? 0).toFixed(1)}
               </td>
-              <td className="text-center py-2.5 px-3 text-text-secondary">{s.方向}</td>
-              <td className={`text-right py-2.5 px-3 tabular-nums font-semibold ${scoreColor(s.综合评分)}`}>
-                {s.综合评分}
+              <td className="text-center py-2.5 px-3 text-text-secondary">{s.direction}</td>
+              <td className={`text-right py-2.5 px-3 tabular-nums font-semibold ${scoreColor(s.composite_score)}`}>
+                {s.composite_score}
               </td>
               <td className="text-center py-2.5 px-4">
                 <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                  s.综合评分 >= 75
+                  s.composite_score >= 75
                     ? 'bg-accent-red/15 text-accent-red'
-                    : s.综合评分 >= 60
+                    : s.composite_score >= 60
                     ? 'bg-accent-orange/15 text-accent-orange'
-                    : s.综合评分 >= 40
+                    : s.composite_score >= 40
                     ? 'bg-bg-primary text-text-secondary'
-                    : s.综合评分 >= 25
+                    : s.composite_score >= 25
                     ? 'bg-accent-green/15 text-accent-green'
                     : 'bg-accent-blue/15 text-accent-blue'
                 }`}>
-                  {s.信号}
+                  {s.signal}
                 </span>
               </td>
             </tr>
