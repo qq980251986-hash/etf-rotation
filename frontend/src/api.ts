@@ -13,6 +13,7 @@ export interface Signal {
   flow_score: number;
   composite_score: number;
   signal: string;
+  market_cap_yi: number;
 }
 
 export interface Accumulation {

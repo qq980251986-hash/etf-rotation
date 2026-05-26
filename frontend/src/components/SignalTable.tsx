@@ -42,6 +42,7 @@ export function SignalTable({ signals, loading }: Props) {
             <th className="text-right py-3 px-3 font-medium">RS(5日)</th>
             <th className="text-right py-3 px-3 font-medium">主力净流入</th>
             <th className="text-right py-3 px-3 font-medium">份额(亿份)</th>
+            <th className="text-right py-3 px-3 font-medium">规模(亿)</th>
             <th className="text-center py-3 px-3 font-medium">方向</th>
             <th className="text-right py-3 px-3 font-medium">评分</th>
             <th className="text-center py-3 px-4 font-medium">信号</th>
@@ -67,6 +68,9 @@ export function SignalTable({ signals, loading }: Props) {
               </td>
               <td className="text-right py-2.5 px-3 tabular-nums text-text-secondary">
                 {(s.shares_yi ?? 0).toFixed(1)}
+              </td>
+              <td className="text-right py-2.5 px-3 tabular-nums text-text-secondary">
+                {(s.market_cap_yi ?? 0).toFixed(1)}
               </td>
               <td className="text-center py-2.5 px-3 text-text-secondary">{s.direction}</td>
               <td className={`text-right py-2.5 px-3 tabular-nums font-semibold ${scoreColor(s.composite_score)}`}>

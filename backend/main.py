@@ -34,7 +34,7 @@ app.add_middleware(
 def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
                       direction="-", rs_score=50.0, flow_yi=0.0,
                       shares_yi=0.0, change_pct=0.0, flow_score=50.0,
-                      signal_text=""):
+                      market_cap_yi=0.0, signal_text=""):
     comp = compute_composite_score(flow_score, rs_score)
     if not signal_text:
         label, icon = signal_label(comp)
@@ -52,6 +52,7 @@ def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
         "flow_score": flow_score,
         "composite_score": comp,
         "signal": signal_text,
+        "market_cap_yi": round(market_cap_yi, 2),
     }
 
 
@@ -74,6 +75,7 @@ def get_quotes():
             "change_pct": row.get("涨跌幅", 0),
             "turnover_yi": round(float(row.get("成交额(亿)", 0) or 0), 2),
             "shares_yi": round(float(row.get("最新份额", 0) or 0) / 1e8, 2),
+            "market_cap_yi": round(float(row.get("流通市值", 0) or 0) / 1e8, 2),
             "flow_yi": round(float(row.get("主力净流入-净额(亿)", 0) or 0), 2),
             "flow_pct": row.get("主力净流入-净占比", 0),
             "huge_yi": round(float(row.get("超大单净流入-净额(亿)", 0) or 0), 2),
@@ -129,11 +131,13 @@ def get_signals():
         flow_yi = 0.0
         shares_yi = 0.0
         change_pct = 0.0
+        market_cap_yi = 0.0
         if not q.empty:
             r = q.iloc[0]
             flow_yi = float(r.get("主力净流入-净额(亿)", 0) or 0)
             shares_yi = float(r.get("最新份额", 0) or 0) / 1e8
             change_pct = float(r.get("涨跌幅", 0) or 0)
+            market_cap_yi = float(r.get("流通市值", 0) or 0) / 1e8
 
         rs_5d = rs_10d = rs_20d = None
         direction = "-"
@@ -156,7 +160,7 @@ def get_signals():
             sector=sector, rs_5d=rs_5d, rs_10d=rs_10d, rs_20d=rs_20d,
             direction=direction, rs_score=rs_score, flow_yi=flow_yi,
             shares_yi=shares_yi, change_pct=change_pct, flow_score=flow_score,
-            signal_text=f"{icon} {label}",
+            market_cap_yi=market_cap_yi, signal_text=f"{icon} {label}",
         ))
         results[-1]["composite_score"] = comp
 

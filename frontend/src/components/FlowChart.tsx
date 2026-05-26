@@ -34,6 +34,14 @@ export function FlowChart({ signals, loading }: Props) {
         tooltip: {
           trigger: 'axis' as const,
           axisPointer: { type: 'shadow' as const },
+          formatter: (params: any) => {
+            const p = params[0];
+            const item = sorted[p.dataIndex];
+            return `<b>${item.sector}</b><br/>`
+              + `主力净流入: <b>${(item.flow_yi ?? 0) > 0 ? '+' : ''}${(item.flow_yi ?? 0).toFixed(2)}</b> 亿<br/>`
+              + `规模: <b>${(item.market_cap_yi ?? 0).toFixed(1)}</b> 亿<br/>`
+              + `涨跌幅: ${(item.change_pct ?? 0) > 0 ? '+' : ''}${(item.change_pct ?? 0).toFixed(2)}%`;
+          },
         },
         grid: { left: 90, right: 60, top: 10, bottom: 30 },
         xAxis: {
