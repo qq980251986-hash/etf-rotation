@@ -224,16 +224,17 @@ def get_accumulation(period: str = "7d"):
             elif concentration > 6:
                 concentration_label = "中"
 
-        # 因子3 & 4: 需要历史数据
+        # 因子3 & 4: 历史数据分析，失败则用当日数据降级
         volume_price_score = 0
-        volume_price_label = "无数据"
+        volume_price_label = "无明显信号"
         bottoming_score = 0
-        bottoming_label = "无数据"
+        bottoming_label = "无明显信号"
+        history_ok = False
 
         try:
             hist = fetch_etf_history(code, days)
             if len(hist) >= days // 2 + 1:
-                import numpy as np
+                history_ok = True
                 volumes = hist["成交额"] if "成交额" in hist.columns else pd.Series(dtype=float)
                 changes = hist["涨跌幅"]
 
@@ -263,7 +264,6 @@ def get_accumulation(period: str = "7d"):
                     second_half_vol = float(volumes.iloc[mid:].mean()) if len(volumes) >= mid else 0
 
                     if first_half_change < second_half_change and second_half_vol > first_half_vol * 1.1:
-                        # 前跌后企稳 + 后半段放量
                         strength = min(1.0, abs(first_half_change - second_half_change) / max(abs(first_half_change), 1))
                         bottoming_score = round(20 * strength, 1)
                         bottoming_label = "止跌放量"
@@ -275,6 +275,39 @@ def get_accumulation(period: str = "7d"):
                         bottoming_label = "无明显信号"
         except Exception as e:
             logger.debug(f"accumulation history failed for {sector}: {e}")
+
+        # 历史数据不可用时，用当日数据做降级分析
+        if not history_ok:
+            # 因子3降级: 当日资金流入但价格没大涨 = 建仓特征
+            if big_total > 0 and abs(change_pct) < 1.5:
+                volume_price_score = 20
+                volume_price_label = "资金流入价稳"
+            elif big_total > 0 and change_pct < 0:
+                volume_price_score = 15
+                volume_price_label = "资金逢低买入"
+            elif big_total > 0:
+                volume_price_score = 8
+                volume_price_label = "资金流入"
+            else:
+                volume_price_score = 3
+                volume_price_label = "无明显信号"
+
+            # 因子4降级: 当日涨跌幅 + 超大单方向判断
+            if change_pct < -0.5 and huge_yi > 0:
+                # 价格下跌但超大单在买 = 逢低吸筹
+                bottoming_score = 15
+                bottoming_label = "逢低吸筹"
+            elif abs(change_pct) < 0.5 and big_total > 0:
+                # 横盘且大资金流入 = 悄悄建仓
+                bottoming_score = 12
+                bottoming_label = "横盘吸筹"
+            elif change_pct > 0 and small_yi < 0:
+                # 散户在卖但价格在涨 = 主力承接
+                bottoming_score = 10
+                bottoming_label = "主力承接"
+            else:
+                bottoming_score = 3
+                bottoming_label = "无明显信号"
 
         accum_score = round(big_vs_small_score + concentration + volume_price_score + bottoming_score, 1)
 
