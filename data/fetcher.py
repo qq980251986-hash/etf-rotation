@@ -1,16 +1,15 @@
-"""AKShare 数据获取层 — 双层缓存（磁盘 + Streamlit 内存）"""
+"""AKShare 数据获取层 — 磁盘缓存（无框架依赖）"""
 
-import contextlib
 import datetime
 import json
 import os
 import pathlib
 import time
+from functools import lru_cache
 
 import akshare as ak
 import pandas as pd
 import requests
-import streamlit as st
 
 from data.etf_list import INDUSTRY_ETFS, CODE_TO_NAME, BENCHMARK_ETFS
 
@@ -21,13 +20,11 @@ for _k in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"
 
 requests.utils.getproxies = lambda *_, **__: {}
 
-# 磁盘缓存目录
 _CACHE_DIR = pathlib.Path(__file__).parent.parent / ".cache"
 _CACHE_DIR.mkdir(exist_ok=True)
 
 
 def _read_disk_cache(key: str, ttl_seconds: int):
-    """读磁盘缓存，过期返回 None"""
     fp = _CACHE_DIR / f"{key}.parquet"
     meta_fp = _CACHE_DIR / f"{key}.meta.json"
     if not fp.exists() or not meta_fp.exists():
@@ -42,7 +39,6 @@ def _read_disk_cache(key: str, ttl_seconds: int):
 
 
 def _write_disk_cache(key: str, df: pd.DataFrame):
-    """写磁盘缓存"""
     fp = _CACHE_DIR / f"{key}.parquet"
     meta_fp = _CACHE_DIR / f"{key}.meta.json"
     df.to_parquet(fp, index=False)
@@ -50,33 +46,24 @@ def _write_disk_cache(key: str, df: pd.DataFrame):
 
 
 def _cached_fetch(key: str, ttl_seconds: int, fetch_fn):
-    """双层缓存：磁盘 → Streamlit 内存 → 远程"""
-    # 1. 磁盘缓存
     disk_df = _read_disk_cache(key, ttl_seconds)
     if disk_df is not None:
         return disk_df
-
-    # 2. 远程获取
     df = fetch_fn()
-
-    # 3. 写入磁盘
     _write_disk_cache(key, df)
     return df
 
 
 # ---- 实时行情（TTL 5min）----
 
-@st.cache_data(ttl=300, show_spinner=False)
+@lru_cache(maxsize=1)
 def fetch_etf_quotes() -> pd.DataFrame:
-    """获取全市场 ETF 实时行情"""
     return _cached_fetch("etf_quotes_all", 300, ak.fund_etf_spot_em)
 
 
 # ---- 历史K线（TTL 1h）----
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
-    """获取 ETF 历史 K 线"""
     key = f"hist_{symbol}_{days}"
 
     def _fetch():
@@ -94,9 +81,8 @@ def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
     return _cached_fetch(key, 3600, _fetch)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@lru_cache(maxsize=4)
 def fetch_benchmark_history(days: int = 30) -> pd.DataFrame:
-    """获取基准 ETF（沪深300）历史数据"""
     from data.etf_list import RS_BENCHMARK
     return fetch_etf_history(RS_BENCHMARK, days)
 
@@ -104,7 +90,6 @@ def fetch_benchmark_history(days: int = 30) -> pd.DataFrame:
 # ---- 衍生查询 ----
 
 def get_industry_etf_quotes() -> pd.DataFrame:
-    """筛选行业 ETF 行情，附带板块名称"""
     all_quotes = fetch_etf_quotes()
     codes = set(INDUSTRY_ETFS.values())
     df = all_quotes[all_quotes["代码"].isin(codes)].copy()
@@ -128,7 +113,6 @@ def get_industry_etf_quotes() -> pd.DataFrame:
 
 
 def get_benchmark_quotes() -> pd.DataFrame:
-    """获取宽基 ETF 行情"""
     all_quotes = fetch_etf_quotes()
     codes = set(BENCHMARK_ETFS.values())
     df = all_quotes[all_quotes["代码"].isin(codes)].copy()

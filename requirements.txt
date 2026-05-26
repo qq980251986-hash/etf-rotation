@@ -1,5 +1,5 @@
 akshare
-streamlit>=1.40
+fastapi
+uvicorn[standard]
 pandas>=2.0
-plotly>=5.18
 numpy>=1.24
