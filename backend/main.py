@@ -29,6 +29,15 @@ from data.etf_list import INDUSTRY_ETFS
 
 logger = logging.getLogger("etf")
 
+
+def _sf(v, default=0.0):
+    """Safe float: NaN/inf/None → default"""
+    try:
+        f = float(v)
+        return default if (f != f or abs(f) == float('inf')) else f
+    except (TypeError, ValueError):
+        return default
+
 app = FastAPI(title="ETF 轮动监测 API")
 
 app.add_middleware(
@@ -91,17 +100,17 @@ def get_quotes():
             "sector": row.get("sector", ""),
             "code": row.get("代码", ""),
             "name": row.get("名称", ""),
-            "price": row.get("最新价", 0),
-            "change_pct": row.get("涨跌幅", 0),
-            "turnover_yi": round(float(row.get("成交额(亿)", 0) or 0), 2),
-            "shares_yi": round(float(row.get("最新份额", 0) or 0) / 1e8, 2),
-            "market_cap_yi": round(float(row.get("流通市值", 0) or 0) / 1e8, 2),
-            "flow_yi": round(float(row.get("主力净流入-净额(亿)", 0) or 0), 2),
-            "flow_pct": row.get("主力净流入-净占比", 0),
-            "huge_yi": round(float(row.get("超大单净流入-净额(亿)", 0) or 0), 2),
-            "big_yi": round(float(row.get("大单净流入-净额(亿)", 0) or 0), 2),
-            "mid_yi": round(float(row.get("中单净流入-净额(亿)", 0) or 0), 2),
-            "small_yi": round(float(row.get("小单净流入-净额(亿)", 0) or 0), 2),
+            "price": _sf(row.get("最新价")),
+            "change_pct": _sf(row.get("涨跌幅")),
+            "turnover_yi": round(_sf(row.get("成交额(亿)")), 2),
+            "shares_yi": round(_sf(row.get("最新份额")) / 1e8, 2),
+            "market_cap_yi": round(_sf(row.get("流通市值")) / 1e8, 2),
+            "flow_yi": round(_sf(row.get("主力净流入-净额(亿)")), 2),
+            "flow_pct": _sf(row.get("主力净流入-净占比")),
+            "huge_yi": round(_sf(row.get("超大单净流入-净额(亿)")), 2),
+            "big_yi": round(_sf(row.get("大单净流入-净额(亿)")), 2),
+            "mid_yi": round(_sf(row.get("中单净流入-净额(亿)")), 2),
+            "small_yi": round(_sf(row.get("小单净流入-净额(亿)")), 2),
         })
     _set_cached("quotes", results)
     return results
@@ -177,15 +186,15 @@ def get_signals():
         market_cap_yi = 0.0
         if not q.empty:
             r = q.iloc[0]
-            flow_yi = float(r.get("主力净流入-净额(亿)", 0) or 0)
-            shares_yi = float(r.get("最新份额", 0) or 0) / 1e8
-            change_pct = float(r.get("涨跌幅", 0) or 0)
-            market_cap_yi = float(r.get("流通市值", 0) or 0) / 1e8
+            flow_yi = _sf(r.get("主力净流入-净额(亿)"))
+            shares_yi = _sf(r.get("最新份额")) / 1e8
+            change_pct = _sf(r.get("涨跌幅"))
+            market_cap_yi = _sf(r.get("流通市值")) / 1e8
 
         # 份额变化（亿份）
         sc = changes_map.get(code, {})
-        shares_change = float(sc.get("change", 0) or 0) / 1e8
-        shares_change_pct = float(sc.get("change_pct", 0) or 0)
+        shares_change = _sf(sc.get("change")) / 1e8
+        shares_change_pct = _sf(sc.get("change_pct"))
 
         rs_5d = rs_10d = rs_20d = None
         direction = "-"
@@ -349,11 +358,11 @@ def get_accumulation(period: str = "7d"):
         huge_yi = big_yi = small_yi = turnover_yi = change_pct = 0.0
         if not q.empty:
             r = q.iloc[0]
-            huge_yi = float(r.get("超大单净流入-净额(亿)", 0) or 0)
-            big_yi = float(r.get("大单净流入-净额(亿)", 0) or 0)
-            small_yi = float(r.get("小单净流入-净额(亿)", 0) or 0)
-            turnover_yi = float(r.get("成交额(亿)", 0) or 0)
-            change_pct = float(r.get("涨跌幅", 0) or 0)
+            huge_yi = _sf(r.get("超大单净流入-净额(亿)"))
+            big_yi = _sf(r.get("大单净流入-净额(亿)"))
+            small_yi = _sf(r.get("小单净流入-净额(亿)"))
+            turnover_yi = _sf(r.get("成交额(亿)"))
+            change_pct = _sf(r.get("涨跌幅"))
 
         # 因子1: 大买小卖（权重35）
         big_total = huge_yi + big_yi
@@ -525,8 +534,8 @@ def get_northbound():
         for _, row in rt_df.iterrows():
             realtime.append({
                 "time": row.get("time", ""),
-                "hgt_yi": round(float(row.get("hgt_yi", 0) or 0), 2),
-                "sgt_yi": round(float(row.get("sgt_yi", 0) or 0), 2),
+                "hgt_yi": round(_sf(row.get("hgt_yi")), 2),
+                "sgt_yi": round(_sf(row.get("sgt_yi")), 2),
             })
     except Exception as e:
         logger.warning(f"北向实时数据失败: {e}")
@@ -538,8 +547,8 @@ def get_northbound():
         for _, row in hist_df.iterrows():
             history.append({
                 "date": str(row.get("date", "")),
-                "hgt_yi": round(float(row.get("hgt_yi", 0) or 0), 2),
-                "sgt_yi": round(float(row.get("sgt_yi", 0) or 0), 2),
+                "hgt_yi": round(_sf(row.get("hgt_yi")), 2),
+                "sgt_yi": round(_sf(row.get("sgt_yi")), 2),
             })
     except Exception:
         history = []
