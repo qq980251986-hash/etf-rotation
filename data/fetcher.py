@@ -156,6 +156,7 @@ def warm_up():
         try:
             fetch_etf_history(code, 30)
             fetch_etf_history(code, 90)
+            fetch_etf_history(code, 300)
             success += 1
         except Exception:
             pass
@@ -180,6 +181,7 @@ def _refresh_loop(interval_minutes: int = 30):
                 try:
                     fetch_etf_history(code, 30)
                     fetch_etf_history(code, 90)
+                    fetch_etf_history(code, 300)
                 except Exception:
                     pass
                 time.sleep(0.5)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -52,18 +53,27 @@ def run_backtest(
     """
     max_days = max(period_days, hold_days) + 250  # 约1年数据
 
-    # 批量拉取历史数据
+    # 并行拉取历史数据
     all_hist = {}
-    for name, code in INDUSTRY_ETFS.items():
-        try:
-            all_hist[name] = fetch_etf_history(code, max_days)
-        except Exception:
-            continue
+    bench_hist = pd.DataFrame()
 
-    try:
-        bench_hist = fetch_etf_history(RS_BENCHMARK, max_days)
-    except Exception:
-        bench_hist = pd.DataFrame()
+    def _fetch_one(name, code):
+        try:
+            return name, fetch_etf_history(code, max_days)
+        except Exception:
+            return name, None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_fetch_one, name, code): name
+                   for name, code in INDUSTRY_ETFS.items()}
+        futures[pool.submit(_fetch_one, "__benchmark__", RS_BENCHMARK)] = "__benchmark__"
+        for fut in as_completed(futures):
+            name, df = fut.result()
+            if df is not None:
+                if name == "__benchmark__":
+                    bench_hist = df
+                else:
+                    all_hist[name] = df
 
     if len(all_hist) < 5 or bench_hist.empty:
         return BacktestResult(nav=[], dates=[], benchmark_nav=[], trades=[], metrics={})

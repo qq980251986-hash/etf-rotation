@@ -2,8 +2,10 @@
 
 import sys
 import os
+import datetime
 import logging
 import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -240,17 +242,44 @@ def get_history(code: str, days: int = 30):
     return out
 
 
+_backtest_cache: dict = {}
+_backtest_cache_lock = threading.Lock()
+
+
+def _get_backtest_cache_key(period: int, hold: int, top_n: int) -> str:
+    return f"{period}_{hold}_{top_n}"
+
+
+def _backtest_ttl_seconds() -> int:
+    now = datetime.datetime.now()
+    close_time = now.replace(hour=15, minute=5, second=0, microsecond=0)
+    if now < close_time:
+        return max(300, int((close_time - now).total_seconds()))
+    next_day = (now + datetime.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+    return max(300, int((next_day - now).total_seconds()))
+
+
 @app.get("/api/backtest")
 def get_backtest(period: int = 20, hold: int = 5, top_n: int = 5):
-    """动量轮动策略回测"""
+    """动量轮动策略回测（结果整体缓存到收盘）"""
+    key = _get_backtest_cache_key(period, hold, top_n)
+    ttl = _backtest_ttl_seconds()
+    with _backtest_cache_lock:
+        entry = _backtest_cache.get(key)
+        if entry and (time.time() - entry["ts"]) < ttl:
+            return entry["data"]
+
     result = run_backtest(period_days=period, hold_days=hold, top_n=top_n)
-    return {
+    data = {
         "nav": result.nav,
         "dates": result.dates,
         "benchmark_nav": result.benchmark_nav,
         "trades": result.trades,
         "metrics": result.metrics,
     }
+    with _backtest_cache_lock:
+        _backtest_cache[key] = {"ts": time.time(), "data": data}
+    return data
 
 
 PERIOD_MAP = {"7d": 7, "1m": 30, "3m": 90}
