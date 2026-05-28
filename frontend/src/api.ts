@@ -83,3 +83,86 @@ export async function fetchPredictionAccuracy(forwardDays: number = 5): Promise<
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
+
+// ---- 补充数据：北向资金 / 行业排名 / 龙虎榜 / 热点题材 ----
+
+export interface NorthboundData {
+  realtime: { time: string; hgt_yi: number; sgt_yi: number }[];
+  history: { date: string; hgt_yi: number; sgt_yi: number }[];
+}
+
+export async function fetchNorthbound(): Promise<NorthboundData> {
+  const res = await fetch(`${BASE}/northbound`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export interface IndustryItem {
+  rank: number;
+  name: string;
+  change_pct: number;
+  up_count: number;
+  down_count: number;
+  leader: string;
+  leader_change: number;
+}
+
+export interface IndustryData {
+  top: IndustryItem[];
+  bottom: IndustryItem[];
+  total: number;
+}
+
+export async function fetchIndustryRanking(topN: number = 30): Promise<IndustryData> {
+  const res = await fetch(`${BASE}/industry-ranking?top_n=${topN}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export interface DragonTigerItem {
+  code: string;
+  name: string;
+  reason: string;
+  close: number;
+  change_pct: number;
+  net_buy_wan: number;
+  buy_wan: number;
+  sell_wan: number;
+  turnover_pct: number;
+}
+
+export interface DragonTigerData {
+  date: string;
+  total: number;
+  stocks: DragonTigerItem[];
+}
+
+export async function fetchDragonTiger(tradeDate?: string): Promise<DragonTigerData> {
+  const params = tradeDate ? `?trade_date=${tradeDate}` : '';
+  const res = await fetch(`${BASE}/dragon-tiger${params}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export interface HotThemeItem {
+  code: string;
+  name: string;
+  reason: string;
+  change_pct: number;
+  turnover_pct: number;
+  close: number;
+  market: string;
+}
+
+export interface HotThemeData {
+  date: string;
+  total: number;
+  stocks: HotThemeItem[];
+}
+
+export async function fetchHotThemes(date?: string): Promise<HotThemeData> {
+  const params = date ? `?date=${date}` : '';
+  const res = await fetch(`${BASE}/hot-themes${params}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}

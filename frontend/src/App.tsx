@@ -7,8 +7,12 @@ import { FlowChart } from './components/FlowChart';
 import { SignalTable } from './components/SignalTable';
 import { AccumulationChart } from './components/AccumulationChart';
 import { BacktestChart } from './components/BacktestChart';
+import { NorthboundChart } from './components/NorthboundChart';
+import { IndustryRanking } from './components/IndustryRanking';
+import { DragonTiger } from './components/DragonTiger';
+import { HotThemes } from './components/HotThemes';
 
-type Tab = 'heatmap' | 'shares' | 'flow' | 'accumulation' | 'backtest';
+type Tab = 'heatmap' | 'shares' | 'flow' | 'accumulation' | 'backtest' | 'northbound' | 'industry' | 'dragon-tiger' | 'hot-themes';
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'heatmap', label: '轮动热力图' },
@@ -16,6 +20,10 @@ const tabs: { key: Tab; label: string }[] = [
   { key: 'flow', label: '资金流向' },
   { key: 'accumulation', label: '主力建仓' },
   { key: 'backtest', label: '策略回测' },
+  { key: 'northbound', label: '北向资金' },
+  { key: 'industry', label: '行业排名' },
+  { key: 'dragon-tiger', label: '龙虎榜' },
+  { key: 'hot-themes', label: '热点题材' },
 ];
 
 export default function App() {
@@ -92,6 +100,10 @@ export default function App() {
           {activeTab === 'flow' && <FlowChart signals={signals} loading={loading} />}
           {activeTab === 'accumulation' && <AccumulationChart />}
           {activeTab === 'backtest' && <BacktestChart />}
+          {activeTab === 'northbound' && <NorthboundChart />}
+          {activeTab === 'industry' && <IndustryRanking />}
+          {activeTab === 'dragon-tiger' && <DragonTiger />}
+          {activeTab === 'hot-themes' && <HotThemes />}
         </div>
         <div className="mt-4">
           <SignalTable signals={signals} loading={loading} />
@@ -99,7 +111,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-border px-6 py-3 text-center text-xs text-text-muted">
-        数据源: 东方财富(AKShare) | 信号仅供参考，不构成投资建议
+        数据源: 东方财富(AKShare) + 同花顺/东财直连 | 信号仅供参考，不构成投资建议
       </footer>
     </div>
   );

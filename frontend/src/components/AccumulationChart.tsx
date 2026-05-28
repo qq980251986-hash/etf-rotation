@@ -42,9 +42,11 @@ export function AccumulationChart() {
     if (_cache.has(period)) {
       setData(_cache.get(period)!);
       setLoading(false);
+      setError('');
       return;
     }
     let cancelled = false;
+    setData([]);
     setLoading(true);
     setError('');
     fetchAccumulation(period)
@@ -66,6 +68,10 @@ export function AccumulationChart() {
   useEffect(() => {
     if (!chartRef.current || loading || data.length === 0) return;
     try {
+      if (instanceRef.current && instanceRef.current.getDom() !== chartRef.current) {
+        instanceRef.current.dispose();
+        instanceRef.current = null;
+      }
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(chartRef.current);
       }

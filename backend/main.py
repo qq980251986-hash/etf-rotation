@@ -16,6 +16,10 @@ import pandas as pd
 from data.fetcher import get_industry_etf_quotes, fetch_etf_history, warm_up, start_background_refresh
 from data.share_tracker import save_share_snapshot, get_share_changes
 from data.prediction_tracker import save_prediction_snapshot, get_prediction_accuracy
+from data.augmented_fetcher import (
+    fetch_northbound_realtime, fetch_northbound_history,
+    fetch_industry_ranking, fetch_dragon_tiger_daily, fetch_hot_themes,
+)
 from analytics.rotation import compute_rs_matrix, compute_rotation_signal
 from analytics.signals import build_signal_table, score_fund_flow, compute_composite_score, signal_label
 from analytics.backtest import run_backtest
@@ -417,6 +421,125 @@ def get_accumulation(period: str = "7d"):
 def get_pred_accuracy(forward_days: int = 5):
     """建仓预测准确率统计"""
     return get_prediction_accuracy(forward_days)
+
+
+@app.get("/api/northbound")
+def get_northbound():
+    """北向资金分钟流向 + 历史趋势"""
+    try:
+        rt_df = fetch_northbound_realtime()
+        realtime = []
+        for _, row in rt_df.iterrows():
+            realtime.append({
+                "time": row.get("time", ""),
+                "hgt_yi": round(float(row.get("hgt_yi", 0) or 0), 2),
+                "sgt_yi": round(float(row.get("sgt_yi", 0) or 0), 2),
+            })
+    except Exception as e:
+        logger.warning(f"北向实时数据失败: {e}")
+        realtime = []
+
+    try:
+        hist_df = fetch_northbound_history(20)
+        history = []
+        for _, row in hist_df.iterrows():
+            history.append({
+                "date": str(row.get("date", "")),
+                "hgt_yi": round(float(row.get("hgt_yi", 0) or 0), 2),
+                "sgt_yi": round(float(row.get("sgt_yi", 0) or 0), 2),
+            })
+    except Exception:
+        history = []
+
+    return {"realtime": realtime, "history": history}
+
+
+@app.get("/api/industry-ranking")
+def get_industry_ranking(top_n: int = 30):
+    """全市场行业涨跌排名"""
+    try:
+        df = fetch_industry_ranking(top_n)
+        if df.empty:
+            return {"top": [], "bottom": [], "total": 0}
+        rows = []
+        for _, r in df.iterrows():
+            rows.append({
+                "rank": int(r.get("rank", 0)),
+                "name": r.get("name", ""),
+                "change_pct": r.get("change_pct", 0),
+                "up_count": r.get("up_count", 0),
+                "down_count": r.get("down_count", 0),
+                "leader": r.get("leader", ""),
+                "leader_change": r.get("leader_change", 0),
+            })
+        return {
+            "top": rows[:top_n],
+            "bottom": rows[-top_n:] if len(rows) > top_n else [],
+            "total": len(rows),
+        }
+    except Exception as e:
+        logger.warning(f"行业排名失败: {e}")
+        return {"top": [], "bottom": [], "total": 0}
+
+
+@app.get("/api/dragon-tiger")
+def get_dragon_tiger(trade_date: str = None):
+    """全市场龙虎榜"""
+    try:
+        df = fetch_dragon_tiger_daily(trade_date)
+        if df.empty:
+            return {"date": trade_date, "total": 0, "stocks": []}
+        stocks = []
+        for _, r in df.iterrows():
+            stocks.append({
+                "code": r.get("code", ""),
+                "name": r.get("name", ""),
+                "reason": r.get("reason", ""),
+                "close": r.get("close", 0),
+                "change_pct": r.get("change_pct", 0),
+                "net_buy_wan": r.get("net_buy_wan", 0),
+                "buy_wan": r.get("buy_wan", 0),
+                "sell_wan": r.get("sell_wan", 0),
+                "turnover_pct": r.get("turnover_pct", 0),
+            })
+        return {
+            "date": trade_date or "",
+            "total": len(stocks),
+            "stocks": stocks,
+        }
+    except Exception as e:
+        logger.warning(f"龙虎榜失败: {e}")
+        return {"date": trade_date or "", "total": 0, "stocks": []}
+
+
+@app.get("/api/hot-themes")
+def get_hot_themes(date: str = None):
+    """当日强势股题材归因"""
+    try:
+        df = fetch_hot_themes(date)
+        if df.empty:
+            return {"date": date, "total": 0, "stocks": []}
+        stocks = []
+        for _, r in df.iterrows():
+            stocks.append({
+                "code": r.get("代码", ""),
+                "name": r.get("名称", ""),
+                "reason": r.get("题材归因", ""),
+                "change_pct": r.get("涨幅%", 0),
+                "turnover_pct": r.get("换手率%", 0),
+                "close": r.get("收盘价", 0),
+                "market": r.get("市场", ""),
+            })
+        return {
+            "date": date or "",
+            "total": len(stocks),
+            "stocks": stocks,
+        }
+    except Exception as e:
+        logger.warning(f"热点题材失败: {e}")
+        return {"date": date or "", "total": 0, "stocks": []}
+
+
 def on_startup():
     """服务启动时：后台线程预热缓存 + 定时刷新"""
     threading.Thread(target=warm_up, daemon=True).start()

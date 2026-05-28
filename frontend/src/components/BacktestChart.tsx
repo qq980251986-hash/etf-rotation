@@ -49,9 +49,11 @@ export function BacktestChart() {
     if (_cache.has(key)) {
       setData(_cache.get(key)!);
       setLoading(false);
+      setError('');
       return;
     }
     let cancelled = false;
+    setData(null);
     setLoading(true);
     setError('');
     fetchBacktest(period, hold, topN)
@@ -70,6 +72,10 @@ export function BacktestChart() {
   useEffect(() => {
     if (!chartRef.current || loading || !data || data.nav.length === 0) return;
     try {
+      if (instanceRef.current && instanceRef.current.getDom() !== chartRef.current) {
+        instanceRef.current.dispose();
+        instanceRef.current = null;
+      }
       if (!instanceRef.current) {
         instanceRef.current = echarts.init(chartRef.current);
       }
