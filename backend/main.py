@@ -245,12 +245,15 @@ def get_history(code: str, days: int = 30):
 _backtest_cache: dict = {}
 _backtest_cache_lock = threading.Lock()
 
+_api_cache: dict = {}
+_api_cache_lock = threading.Lock()
+
 
 def _get_backtest_cache_key(period: int, hold: int, top_n: int) -> str:
     return f"{period}_{hold}_{top_n}"
 
 
-def _backtest_ttl_seconds() -> int:
+def _cache_ttl_seconds() -> int:
     now = datetime.datetime.now()
     close_time = now.replace(hour=15, minute=5, second=0, microsecond=0)
     if now < close_time:
@@ -259,15 +262,26 @@ def _backtest_ttl_seconds() -> int:
     return max(300, int((next_day - now).total_seconds()))
 
 
+def _get_cached(key: str):
+    with _api_cache_lock:
+        entry = _api_cache.get(key)
+        if entry and (time.time() - entry["ts"]) < _cache_ttl_seconds():
+            return entry["data"]
+    return None
+
+
+def _set_cached(key: str, data):
+    with _api_cache_lock:
+        _api_cache[key] = {"ts": time.time(), "data": data}
+
+
 @app.get("/api/backtest")
 def get_backtest(period: int = 20, hold: int = 5, top_n: int = 5):
     """动量轮动策略回测（结果整体缓存到收盘）"""
     key = _get_backtest_cache_key(period, hold, top_n)
-    ttl = _backtest_ttl_seconds()
-    with _backtest_cache_lock:
-        entry = _backtest_cache.get(key)
-        if entry and (time.time() - entry["ts"]) < ttl:
-            return entry["data"]
+    cached = _get_cached(f"bt_{key}")
+    if cached is not None:
+        return cached
 
     result = run_backtest(period_days=period, hold_days=hold, top_n=top_n)
     data = {
@@ -277,8 +291,7 @@ def get_backtest(period: int = 20, hold: int = 5, top_n: int = 5):
         "trades": result.trades,
         "metrics": result.metrics,
     }
-    with _backtest_cache_lock:
-        _backtest_cache[key] = {"ts": time.time(), "data": data}
+    _set_cached(f"bt_{key}", data)
     return data
 
 
@@ -287,7 +300,11 @@ PERIOD_MAP = {"7d": 7, "1m": 30, "3m": 90}
 
 @app.get("/api/accumulation")
 def get_accumulation(period: str = "7d"):
-    """主力建仓概率 — 多因子评分"""
+    """主力建仓概率 — 多因子评分（结果缓存到收盘）"""
+    cached = _get_cached(f"accum_{period}")
+    if cached is not None:
+        return cached
+
     days = PERIOD_MAP.get(period, 7)
     quotes_df = get_industry_etf_quotes()
 
@@ -453,6 +470,7 @@ def get_accumulation(period: str = "7d"):
     except Exception:
         pass
 
+    _set_cached(f"accum_{period}", results)
     return results
 
 
