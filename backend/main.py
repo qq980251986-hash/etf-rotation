@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import pandas as pd
 
-from data.fetcher import get_industry_etf_quotes, fetch_etf_history, warm_up, start_background_refresh
+from data.fetcher import get_industry_etf_quotes, fetch_etf_history, warm_up
 from data.share_tracker import save_share_snapshot, get_share_changes
 from data.prediction_tracker import save_prediction_snapshot, get_prediction_accuracy
 from data.augmented_fetcher import (
@@ -79,7 +79,11 @@ def health():
 
 @app.get("/api/quotes")
 def get_quotes():
-    """行业 ETF 实时行情"""
+    """行业 ETF 实时行情（缓存到收盘）"""
+    cached = _get_cached("quotes")
+    if cached is not None:
+        return cached
+
     df = get_industry_etf_quotes()
     results = []
     for _, row in df.iterrows():
@@ -99,12 +103,17 @@ def get_quotes():
             "mid_yi": round(float(row.get("中单净流入-净额(亿)", 0) or 0), 2),
             "small_yi": round(float(row.get("小单净流入-净额(亿)", 0) or 0), 2),
         })
+    _set_cached("quotes", results)
     return results
 
 
 @app.get("/api/rs-matrix")
 def get_rs_matrix():
-    """RS 矩阵"""
+    """RS 矩阵（缓存到收盘）"""
+    cached = _get_cached("rs_matrix")
+    if cached is not None:
+        return cached
+
     try:
         rs_df = compute_rs_matrix()
         rs_df = compute_rotation_signal(rs_df)
@@ -123,6 +132,7 @@ def get_rs_matrix():
                 "rank_change": r.get("rank_change"),
                 "direction": r.get("direction", "→ 持平"),
             }
+        _set_cached("rs_matrix", out)
         return out
     except Exception as e:
         logger.warning(f"RS matrix failed: {e}")
@@ -131,7 +141,11 @@ def get_rs_matrix():
 
 @app.get("/api/signals")
 def get_signals():
-    """综合信号表"""
+    """综合信号表（缓存到收盘）"""
+    cached = _get_cached("signals")
+    if cached is not None:
+        return cached
+
     quotes_df = get_industry_etf_quotes()
 
     # 自动保存当日份额快照
@@ -205,12 +219,17 @@ def get_signals():
         results[-1]["composite_score"] = comp
 
     results.sort(key=lambda x: x["composite_score"], reverse=True)
+    _set_cached("signals", results)
     return results
 
 
 @app.get("/api/share-changes")
 def get_share_changes_api(days: int = 5):
     """ETF 份额变动（申赎追踪）"""
+    cached = _get_cached(f"share_changes_{days}")
+    if cached is not None:
+        return cached
+
     df = get_share_changes(days)
     if df.empty:
         return []
@@ -225,12 +244,18 @@ def get_share_changes_api(days: int = 5):
             "change_pct": row["change_pct"],
         })
     out.sort(key=lambda x: x["change_pct"], reverse=True)
+    _set_cached(f"share_changes_{days}", out)
     return out
 
 
 @app.get("/api/history/{code}")
 def get_history(code: str, days: int = 30):
     """单只 ETF 历史 K 线"""
+    key = f"hist_{code}_{days}"
+    cached = _get_cached(key)
+    if cached is not None:
+        return cached
+
     df = fetch_etf_history(code, days)
     out = []
     for _, row in df.iterrows():
@@ -239,6 +264,7 @@ def get_history(code: str, days: int = 30):
             "close": float(row["收盘"]),
             "change_pct": float(row["涨跌幅"]),
         })
+    _set_cached(key, out)
     return out
 
 
@@ -477,12 +503,22 @@ def get_accumulation(period: str = "7d"):
 @app.get("/api/prediction-accuracy")
 def get_pred_accuracy(forward_days: int = 5):
     """建仓预测准确率统计"""
-    return get_prediction_accuracy(forward_days)
+    cached = _get_cached(f"pred_acc_{forward_days}")
+    if cached is not None:
+        return cached
+
+    result = get_prediction_accuracy(forward_days)
+    _set_cached(f"pred_acc_{forward_days}", result)
+    return result
 
 
 @app.get("/api/northbound")
 def get_northbound():
-    """北向资金分钟流向 + 历史趋势"""
+    """北向资金分钟流向 + 历史趋势（缓存到收盘）"""
+    cached = _get_cached("northbound")
+    if cached is not None:
+        return cached
+
     try:
         rt_df = fetch_northbound_realtime()
         realtime = []
@@ -508,12 +544,18 @@ def get_northbound():
     except Exception:
         history = []
 
-    return {"realtime": realtime, "history": history}
+    result = {"realtime": realtime, "history": history}
+    _set_cached("northbound", result)
+    return result
 
 
 @app.get("/api/industry-ranking")
 def get_industry_ranking(top_n: int = 30):
-    """全市场行业涨跌排名"""
+    """全市场行业涨跌排名（缓存到收盘）"""
+    cached = _get_cached(f"industry_ranking_{top_n}")
+    if cached is not None:
+        return cached
+
     try:
         df = fetch_industry_ranking(top_n)
         if df.empty:
@@ -529,11 +571,13 @@ def get_industry_ranking(top_n: int = 30):
                 "leader": r.get("leader", ""),
                 "leader_change": r.get("leader_change", 0),
             })
-        return {
+        result = {
             "top": rows[:top_n],
             "bottom": rows[-top_n:] if len(rows) > top_n else [],
             "total": len(rows),
         }
+        _set_cached(f"industry_ranking_{top_n}", result)
+        return result
     except Exception as e:
         logger.warning(f"行业排名失败: {e}")
         return {"top": [], "bottom": [], "total": 0}
@@ -541,7 +585,13 @@ def get_industry_ranking(top_n: int = 30):
 
 @app.get("/api/dragon-tiger")
 def get_dragon_tiger(trade_date: str = None):
-    """全市场龙虎榜"""
+    """全市场龙虎榜（缓存到收盘）"""
+    if trade_date is None:
+        trade_date = datetime.date.today().strftime("%Y-%m-%d")
+    cached = _get_cached(f"dragon_tiger_{trade_date}")
+    if cached is not None:
+        return cached
+
     try:
         df = fetch_dragon_tiger_daily(trade_date)
         if df.empty:
@@ -559,11 +609,13 @@ def get_dragon_tiger(trade_date: str = None):
                 "sell_wan": r.get("sell_wan", 0),
                 "turnover_pct": r.get("turnover_pct", 0),
             })
-        return {
+        result = {
             "date": trade_date or "",
             "total": len(stocks),
             "stocks": stocks,
         }
+        _set_cached(f"dragon_tiger_{trade_date}", result)
+        return result
     except Exception as e:
         logger.warning(f"龙虎榜失败: {e}")
         return {"date": trade_date or "", "total": 0, "stocks": []}
@@ -571,7 +623,13 @@ def get_dragon_tiger(trade_date: str = None):
 
 @app.get("/api/hot-themes")
 def get_hot_themes(date: str = None):
-    """当日强势股题材归因"""
+    """当日强势股题材归因（缓存到收盘）"""
+    if date is None:
+        date = datetime.date.today().strftime("%Y-%m-%d")
+    cached = _get_cached(f"hot_themes_{date}")
+    if cached is not None:
+        return cached
+
     try:
         df = fetch_hot_themes(date)
         if df.empty:
@@ -587,20 +645,94 @@ def get_hot_themes(date: str = None):
                 "close": r.get("收盘价", 0),
                 "market": r.get("市场", ""),
             })
-        return {
+        result = {
             "date": date or "",
             "total": len(stocks),
             "stocks": stocks,
         }
+        _set_cached(f"hot_themes_{date}", result)
+        return result
     except Exception as e:
         logger.warning(f"热点题材失败: {e}")
         return {"date": date or "", "total": 0, "stocks": []}
 
 
+def refresh_api_cache():
+    """预计算并缓存所有 API 响应（单个端点失败不影响其他）"""
+    endpoints = [
+        ("quotes", lambda: get_quotes()),
+        ("rs_matrix", lambda: get_rs_matrix()),
+        ("signals", lambda: get_signals()),
+        ("share_changes_5", lambda: get_share_changes_api(5)),
+        ("northbound", lambda: get_northbound()),
+        ("industry_ranking_30", lambda: get_industry_ranking(30)),
+        ("pred_acc_5", lambda: get_pred_accuracy(5)),
+    ]
+
+    # 需要今日日期的端点
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    endpoints.append(("dragon_tiger", lambda: get_dragon_tiger(today)))
+    endpoints.append(("hot_themes", lambda: get_hot_themes(today)))
+
+    # 回测默认参数
+    endpoints.append(("backtest_default", lambda: get_backtest(20, 5, 5)))
+
+    # 建仓概率三个周期
+    for p in PERIOD_MAP:
+        endpoints.append((f"accum_{p}", lambda p=p: get_accumulation(p)))
+
+    # 常用 ETF 历史 K 线
+    from data.etf_list import RS_BENCHMARK
+    for code in list(INDUSTRY_ETFS.values()) + [RS_BENCHMARK]:
+        for days in [30, 90, 300]:
+            endpoints.append((f"hist_{code}_{days}", lambda c=code, d=days: get_history(c, d)))
+
+    ok = 0
+    for name, fn in endpoints:
+        try:
+            fn()
+            ok += 1
+        except Exception as e:
+            logger.warning(f"预热 {name} 失败: {e}")
+    logger.info(f"API 缓存预热完成: {ok}/{len(endpoints)}")
+
+
+def _full_refresh_loop(interval_minutes: int = 30):
+    """后台定时刷新：数据层 LRU + API 响应缓存"""
+    while True:
+        time.sleep(interval_minutes * 60)
+        logger.info("开始定时刷新...")
+        try:
+            # 清数据层 LRU
+            from data.fetcher import fetch_etf_quotes, fetch_etf_history, fetch_benchmark_history
+            from data.augmented_fetcher import (
+                fetch_northbound_realtime as _nb_rt,
+                fetch_industry_ranking as _ind_rk,
+                fetch_dragon_tiger_daily as _dt,
+                fetch_hot_themes as _ht,
+            )
+            for fn in [fetch_etf_quotes, fetch_etf_history, fetch_benchmark_history,
+                        _nb_rt, _ind_rk, _dt, _ht]:
+                try:
+                    fn.cache_clear()
+                except Exception:
+                    pass
+
+            warm_up()
+            refresh_api_cache()
+            logger.info("定时刷新完成")
+        except Exception as e:
+            logger.warning(f"定时刷新失败: {e}")
+
+
+@app.on_event("startup")
 def on_startup():
-    """服务启动时：后台线程预热缓存 + 定时刷新"""
-    threading.Thread(target=warm_up, daemon=True).start()
-    start_background_refresh(interval_minutes=30)
+    """服务启动时：后台线程预热数据层 + API 缓存 + 定时刷新"""
+    def _startup():
+        warm_up()
+        refresh_api_cache()
+    threading.Thread(target=_startup, daemon=True).start()
+    threading.Thread(target=_full_refresh_loop, args=(30,), daemon=True).start()
 
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
