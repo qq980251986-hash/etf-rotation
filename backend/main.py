@@ -41,7 +41,8 @@ def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
                       direction="-", rs_score=50.0, flow_yi=0.0,
                       shares_yi=0.0, change_pct=0.0, flow_score=50.0,
                       market_cap_yi=0.0, shares_change=0.0, shares_change_pct=0.0,
-                      signal_text=""):
+                      signal_text="", sell_recommend="", sell_tenths=0,
+                      position_recommend="", position_tenths=0):
     comp = compute_composite_score(flow_score, rs_score)
     if not signal_text:
         label, icon = signal_label(comp)
@@ -62,6 +63,10 @@ def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
         "market_cap_yi": round(market_cap_yi, 2),
         "shares_change": round(shares_change, 2),
         "shares_change_pct": round(shares_change_pct, 2),
+        "sell_recommend": sell_recommend,
+        "sell_tenths": sell_tenths,
+        "position_recommend": position_recommend,
+        "position_tenths": position_tenths,
     }
 
 
@@ -183,12 +188,17 @@ def get_signals():
         comp = compute_composite_score(flow_score, rs_score)
         label, icon = signal_label(comp)
 
+        from analytics.signals import position_recommendation
+        rec = position_recommendation(comp, direction)
+
         results.append(_build_signal_row(
             sector=sector, rs_5d=rs_5d, rs_10d=rs_10d, rs_20d=rs_20d,
             direction=direction, rs_score=rs_score, flow_yi=flow_yi,
             shares_yi=shares_yi, change_pct=change_pct, flow_score=flow_score,
             market_cap_yi=market_cap_yi, shares_change=shares_change,
             shares_change_pct=shares_change_pct, signal_text=f"{icon} {label}",
+            sell_recommend=rec["sell_recommend"], sell_tenths=rec["sell_tenths"],
+            position_recommend=rec["position_recommend"], position_tenths=rec["position_tenths"],
         ))
         results[-1]["composite_score"] = comp
 

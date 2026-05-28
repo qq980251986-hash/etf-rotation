@@ -16,6 +16,10 @@ export interface Signal {
   market_cap_yi: number;
   shares_change: number;
   shares_change_pct: number;
+  sell_recommend: string;
+  sell_tenths: number;
+  position_recommend: string;
+  position_tenths: number;
 }
 
 export interface Accumulation {

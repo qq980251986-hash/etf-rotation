@@ -40,6 +40,41 @@ def signal_label(score: float) -> tuple[str, str]:
         return "强势流出", "🔵"
 
 
+def position_recommendation(composite_score: float, direction: str) -> dict:
+    """计算卖出建议 + 仓位布局建议"""
+    if pd.isna(composite_score):
+        composite_score = 50.0
+    base = (100 - composite_score) / 10
+    adjust = 1.0 if "流出" in direction else (-1.0 if "流入" in direction else 0.0)
+    sell_tenths = max(0, min(10, int(round(base + adjust))))
+    position_tenths = 10 - sell_tenths
+
+    if sell_tenths == 0:
+        sell_label = "持有"
+    elif sell_tenths == 10:
+        sell_label = "清仓"
+    else:
+        sell_label = f"卖出{sell_tenths}成"
+
+    if position_tenths == 0:
+        pos_label = "空仓"
+    elif position_tenths <= 3:
+        pos_label = f"轻仓{position_tenths}成"
+    elif position_tenths <= 6:
+        pos_label = f"半仓{position_tenths}成"
+    elif position_tenths <= 9:
+        pos_label = f"重仓{position_tenths}成"
+    else:
+        pos_label = "满仓"
+
+    return {
+        "sell_tenths": sell_tenths,
+        "sell_recommend": sell_label,
+        "position_tenths": position_tenths,
+        "position_recommend": pos_label,
+    }
+
+
 def build_signal_table(rs_df: pd.DataFrame, quotes_df: pd.DataFrame) -> pd.DataFrame:
     """生成信号汇总表
     rs_df: 来自 rotation.compute_rs_matrix
@@ -94,6 +129,14 @@ def build_signal_table(rs_df: pd.DataFrame, quotes_df: pd.DataFrame) -> pd.DataF
         row["综合评分"] = composite
         label, icon = signal_label(composite)
         row["信号"] = f"{icon} {label}"
+
+        # 仓位建议
+        direction_val = row.get("方向", "-")
+        rec = position_recommendation(composite, direction_val)
+        row["卖出成数"] = rec["sell_tenths"]
+        row["建议卖出"] = rec["sell_recommend"]
+        row["仓位成数"] = rec["position_tenths"]
+        row["建议仓位"] = rec["position_recommend"]
 
         rows.append(row)
 

@@ -46,6 +46,8 @@ export function SignalTable({ signals, loading }: Props) {
             <th className="text-right py-3 px-3 font-medium">份额变化</th>
             <th className="text-center py-3 px-3 font-medium">方向</th>
             <th className="text-right py-3 px-3 font-medium">评分</th>
+            <th className="text-center py-3 px-3 font-medium">卖出建议</th>
+            <th className="text-center py-3 px-3 font-medium">布局建议</th>
             <th className="text-center py-3 px-4 font-medium">信号</th>
           </tr>
         </thead>
@@ -80,6 +82,34 @@ export function SignalTable({ signals, loading }: Props) {
               <td className="text-center py-2.5 px-3 text-text-secondary">{s.direction}</td>
               <td className={`text-right py-2.5 px-3 tabular-nums font-semibold ${scoreColor(s.composite_score)}`}>
                 {s.composite_score}
+              </td>
+              <td className="text-center py-2.5 px-3">
+                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                  s.sell_tenths === 0
+                    ? 'bg-accent-gold/15 text-accent-gold'
+                    : s.sell_tenths <= 3
+                    ? 'bg-accent-orange/15 text-accent-orange'
+                    : s.sell_tenths <= 6
+                    ? 'bg-accent-red/15 text-accent-red'
+                    : 'bg-accent-red/25 text-accent-red font-semibold'
+                }`}>
+                  {s.sell_recommend}
+                </span>
+              </td>
+              <td className="text-center py-2.5 px-3">
+                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                  s.position_tenths >= 10
+                    ? 'bg-accent-gold/15 text-accent-gold'
+                    : s.position_tenths >= 7
+                    ? 'bg-accent-red/15 text-accent-red'
+                    : s.position_tenths >= 4
+                    ? 'bg-accent-orange/15 text-accent-orange'
+                    : s.position_tenths >= 1
+                    ? 'bg-accent-green/15 text-accent-green'
+                    : 'bg-accent-blue/15 text-accent-blue'
+                }`}>
+                  {s.position_recommend}
+                </span>
               </td>
               <td className="text-center py-2.5 px-4">
                 <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
