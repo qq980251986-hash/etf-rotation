@@ -6,6 +6,7 @@ export function HotThemes() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
+  const [lastUpdate, setLastUpdate] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -13,6 +14,7 @@ export function HotThemes() {
       .then(data => {
         setStocks(data.stocks);
         setTotal(data.total);
+        setLastUpdate(new Date().toLocaleTimeString('zh-CN'));
       })
       .catch(() => setError('热点题材数据加载失败'))
       .finally(() => setLoading(false));
@@ -55,7 +57,10 @@ export function HotThemes() {
           ))}
         </div>
       )}
-      <div className="mb-3 text-xs text-text-muted">共 {total} 只强势股</div>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-xs text-text-muted">共 {total} 只强势股</div>
+        {lastUpdate && <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

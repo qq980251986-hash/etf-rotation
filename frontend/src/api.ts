@@ -20,6 +20,7 @@ export interface Signal {
   sell_tenths: number;
   position_recommend: string;
   position_tenths: number;
+  rs_date?: string;
 }
 
 export interface Accumulation {

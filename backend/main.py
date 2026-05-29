@@ -124,7 +124,7 @@ def get_rs_matrix():
         return cached
 
     try:
-        rs_df = compute_rs_matrix()
+        rs_df, _ = compute_rs_matrix()
         rs_df = compute_rotation_signal(rs_df)
         out = {}
         for sector in rs_df.index:
@@ -164,11 +164,12 @@ def get_signals():
         pass
 
     try:
-        rs_df = compute_rs_matrix()
+        rs_df, rs_date = compute_rs_matrix()
         rs_df = compute_rotation_signal(rs_df)
     except Exception as e:
         logger.warning(f"RS failed, fallback: {e}")
         rs_df = None
+        rs_date = None
 
     # 获取份额变化
     try:
@@ -226,6 +227,7 @@ def get_signals():
             position_recommend=rec["position_recommend"], position_tenths=rec["position_tenths"],
         ))
         results[-1]["composite_score"] = comp
+        results[-1]["rs_date"] = rs_date
 
     results.sort(key=lambda x: x["composite_score"], reverse=True)
     _set_cached("signals", results)

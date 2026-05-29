@@ -5,11 +5,15 @@ export function IndustryRanking() {
   const [items, setItems] = useState<IndustryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [lastUpdate, setLastUpdate] = useState('');
 
   useEffect(() => {
     setLoading(true);
     fetchIndustryRanking(30)
-      .then(data => setItems(data.top))
+      .then(data => {
+        setItems(data.top);
+        setLastUpdate(new Date().toLocaleTimeString('zh-CN'));
+      })
       .catch(() => setError('行业排名数据加载失败'))
       .finally(() => setLoading(false));
   }, []);
@@ -19,6 +23,11 @@ export function IndustryRanking() {
 
   return (
     <div className="overflow-x-auto">
+      {lastUpdate && (
+        <div className="flex justify-end mb-2">
+          <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>
+        </div>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-text-muted">

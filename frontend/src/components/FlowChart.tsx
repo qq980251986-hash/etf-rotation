@@ -10,9 +10,10 @@ echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 interface Props {
   signals: Signal[];
   loading: boolean;
+  lastUpdate?: string;
 }
 
-export function FlowChart({ signals, loading }: Props) {
+export function FlowChart({ signals, loading, lastUpdate }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
@@ -94,5 +95,14 @@ export function FlowChart({ signals, loading }: Props) {
 
   if (loading) return <div className="h-80 flex items-center justify-center text-text-muted">加载中...</div>;
 
-  return <div ref={chartRef} style={{ height: Math.max(350, signals.length * 26 + 40), width: '100%' }} />;
+  return (
+    <div>
+      {lastUpdate && (
+        <div className="flex justify-end mb-1">
+          <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>
+        </div>
+      )}
+      <div ref={chartRef} style={{ height: Math.max(350, signals.length * 26 + 40), width: '100%' }} />
+    </div>
+  );
 }

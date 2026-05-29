@@ -16,15 +16,17 @@ def calc_return(df: pd.DataFrame, days: int) -> float:
     return (df["收盘"].iloc[-1] / df["收盘"].iloc[-1 - days] - 1) * 100
 
 
-def compute_rs_matrix(periods: list[int] | None = None) -> pd.DataFrame:
+def compute_rs_matrix(periods: list[int] | None = None) -> tuple[pd.DataFrame, str | None]:
     """计算所有行业 ETF 的 RS 矩阵
-    返回 DataFrame: index=板块名, columns=[RS_5d, RS_10d, RS_20d, ret_5d, ret_10d, ret_20d]
+    返回 (DataFrame, data_date): index=板块名, columns=[RS_5d, RS_10d, RS_20d, ...]
+    data_date 为 K 线数据最后日期 (YYYY-MM-DD)
     """
     if periods is None:
         periods = [5, 10, 20]
 
     max_days = max(periods) + 10
     benchmark_df = fetch_benchmark_history(max_days)
+    data_date = benchmark_df["日期"].iloc[-1].strftime("%Y-%m-%d") if not benchmark_df.empty else None
     benchmark_returns = {p: calc_return(benchmark_df, p) for p in periods}
 
     rows = []
@@ -53,7 +55,7 @@ def compute_rs_matrix(periods: list[int] | None = None) -> pd.DataFrame:
         if col in df.columns:
             df[f"rank_{p}d"] = df[col].rank(ascending=False, method="min")
 
-    return df
+    return df, data_date
 
 
 def compute_rotation_signal(rs_df: pd.DataFrame) -> pd.DataFrame:

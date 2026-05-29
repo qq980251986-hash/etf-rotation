@@ -41,6 +41,7 @@ export function BacktestChart() {
   const [data, setData] = useState<BacktestResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [lastUpdate, setLastUpdate] = useState('');
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
@@ -61,6 +62,7 @@ export function BacktestChart() {
         if (!cancelled) {
           _cache.set(key, d);
           setData(d);
+          setLastUpdate(new Date().toLocaleTimeString('zh-CN'));
           if (d.nav.length === 0) setError('数据不足，无法回测');
         }
       })
@@ -154,55 +156,58 @@ export function BacktestChart() {
   return (
     <div>
       {/* 参数面板 */}
-      <div className="flex flex-wrap items-center gap-4 mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-text-muted">信号周期:</span>
-          <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
-            {periods.map((p) => (
-              <button
-                key={p.value}
-                onClick={() => setPeriod(p.value)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  period === p.value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:text-text-secondary'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-text-muted">信号周期:</span>
+            <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
+              {periods.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => setPeriod(p.value)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    period === p.value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-text-muted">持仓天数:</span>
+            <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
+              {holds.map((h) => (
+                <button
+                  key={h.value}
+                  onClick={() => setHold(h.value)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    hold === h.value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  {h.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-text-muted">持仓数量:</span>
+            <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
+              {topNs.map((t) => (
+                <button
+                  key={t.value}
+                  onClick={() => setTopN(t.value)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                    topN === t.value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-text-muted">持仓天数:</span>
-          <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
-            {holds.map((h) => (
-              <button
-                key={h.value}
-                onClick={() => setHold(h.value)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  hold === h.value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:text-text-secondary'
-                }`}
-              >
-                {h.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-text-muted">持仓数量:</span>
-          <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
-            {topNs.map((t) => (
-              <button
-                key={t.value}
-                onClick={() => setTopN(t.value)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                  topN === t.value ? 'bg-accent-gold/15 text-accent-gold' : 'text-text-muted hover:text-text-secondary'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {lastUpdate && <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>}
       </div>
 
       {error && <div className="p-3 rounded-lg bg-accent-red/10 text-accent-red text-sm mb-3">{error}</div>}

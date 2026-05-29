@@ -10,14 +10,18 @@ echarts.use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, 
 interface Props {
   signals: Signal[];
   loading: boolean;
+  lastUpdate?: string;
 }
 
-export function Heatmap({ signals, loading }: Props) {
+export function Heatmap({ signals, loading, lastUpdate }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
+  const rsDate = signals[0]?.rs_date;
+  const hasRsData = signals.some((s) => s.rs_5d != null || s.rs_10d != null || s.rs_20d != null);
+
   useEffect(() => {
-    if (!chartRef.current || loading || signals.length === 0) return;
+    if (!chartRef.current || loading || signals.length === 0 || !hasRsData) return;
 
     try {
       if (!instanceRef.current) {
@@ -87,11 +91,34 @@ export function Heatmap({ signals, loading }: Props) {
     const onResize = () => instanceRef.current?.resize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [signals, loading]);
+  }, [signals, loading, hasRsData]);
 
   if (loading) {
     return <div className="h-96 flex items-center justify-center text-text-muted">正在计算板块相对强度...</div>;
   }
 
-  return <div ref={chartRef} style={{ height: Math.max(400, signals.length * 26 + 60), width: '100%' }} />;
+  if (!hasRsData) {
+    return (
+      <div className="h-96 flex flex-col items-center justify-center text-text-muted gap-2">
+        <span>RS 数据暂不可用，通常收盘后更新</span>
+        {rsDate && <span className="text-[11px]">最近数据截至 {rsDate}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between mb-1">
+        {rsDate && (
+          <span className="text-[11px] text-amber-400/70">
+            RS 数据截至 {rsDate}
+          </span>
+        )}
+        {lastUpdate && (
+          <span className="text-[11px] text-text-muted ml-auto">上次更新 {lastUpdate}</span>
+        )}
+      </div>
+      <div ref={chartRef} style={{ height: Math.max(400, signals.length * 26 + 60), width: '100%' }} />
+    </div>
+  );
 }

@@ -213,6 +213,49 @@ def fetch_dragon_tiger_daily(trade_date: str = None) -> pd.DataFrame:
 
 # ---- 4. 同花顺热点题材归因（TTL 30min）----
 
+def _enrich_quotes_from_eastmoney(df: pd.DataFrame):
+    """用东财行情 API 批量补充涨幅%、换手率%、收盘价"""
+    codes = df["代码"].tolist()
+    # 构造 secid: 6 开头=沪市(1.), 其余=深市(0.)
+    secids = [
+        f"1.{c}" if c.startswith("6") else f"0.{c}" for c in codes
+    ]
+    # 东财字段: f2=最新价, f3=涨跌幅, f8=换手率, f12=代码
+    url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+    params = {
+        "fields": "f2,f3,f8,f12",
+        "secids": ",".join(secids),
+    }
+    try:
+        r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=10)
+        diff = (r.json().get("data") or {}).get("diff") or []
+    except Exception as e:
+        _logger.warning(f"东财单股行情补充失败: {e}")
+        diff = []
+
+    quote_map = {}
+    for item in diff:
+        code = item.get("f12", "")
+        price = item.get("f2", "-")
+        change = item.get("f3", "-")
+        turnover = item.get("f8", "-")
+        quote_map[code] = {
+            "收盘价": price / 100 if isinstance(price, (int, float)) else price,
+            "涨幅%": change / 100 if isinstance(change, (int, float)) else change,
+            "换手率%": turnover / 100 if isinstance(turnover, (int, float)) else turnover,
+        }
+
+    for col in ("收盘价", "涨幅%", "换手率%"):
+        if col not in df.columns:
+            df[col] = None
+
+    for idx, row in df.iterrows():
+        q = quote_map.get(row["代码"], {})
+        for col in ("收盘价", "涨幅%", "换手率%"):
+            if q.get(col) is not None:
+                df.at[idx, col] = q[col]
+
+
 @lru_cache(maxsize=1)
 def fetch_hot_themes(date: str = None) -> pd.DataFrame:
     """当日强势股 + 人工标注题材归因"""
@@ -243,12 +286,14 @@ def fetch_hot_themes(date: str = None) -> pd.DataFrame:
 
         rename_map = {
             "name": "名称", "code": "代码", "reason": "题材归因",
-            "close": "收盘价", "zhangdie": "涨跌额", "zhangfu": "涨幅%",
-            "huanshou": "换手率%", "chengjiaoe": "成交额",
-            "chengjiaoliang": "成交量", "ddejingliang": "大单净量",
             "market": "市场",
         }
         df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+
+        # 同花顺 API 已不再返回行情字段，从东财批量补充涨幅、换手率、收盘价
+        if "代码" in df.columns:
+            _enrich_quotes_from_eastmoney(df)
+
         return df
 
     return _cached_fetch(f"hot_themes_{date}", 1800, _fetch)

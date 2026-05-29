@@ -6,6 +6,7 @@ export function DragonTiger() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
+  const [lastUpdate, setLastUpdate] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -13,6 +14,7 @@ export function DragonTiger() {
       .then(data => {
         setStocks(data.stocks);
         setTotal(data.total);
+        setLastUpdate(new Date().toLocaleTimeString('zh-CN'));
       })
       .catch(() => setError('龙虎榜数据加载失败'))
       .finally(() => setLoading(false));
@@ -32,7 +34,10 @@ export function DragonTiger() {
 
   return (
     <div className="overflow-x-auto">
-      <div className="mb-3 text-xs text-text-muted">共 {total} 只上榜</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-text-muted">共 {total} 只上榜</div>
+        {lastUpdate && <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>}
+      </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-text-muted">

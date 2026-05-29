@@ -13,11 +13,15 @@ export function NorthboundChart() {
   const [data, setData] = useState<NorthboundData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [lastUpdate, setLastUpdate] = useState('');
 
   useEffect(() => {
     setLoading(true);
     fetchNorthbound()
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        setLastUpdate(new Date().toLocaleTimeString('zh-CN'));
+      })
       .catch(() => setError('北向资金数据加载失败'))
       .finally(() => setLoading(false));
   }, []);
@@ -112,19 +116,22 @@ export function NorthboundChart() {
 
   return (
     <div>
-      <div className="flex gap-4 mb-4">
-        {[
-          { label: '北向合计', value: total, color: total > 0 ? 'text-accent-red' : 'text-accent-green' },
-          { label: '沪股通', value: lastHgt ?? 0, color: (lastHgt ?? 0) > 0 ? 'text-accent-red' : 'text-accent-green' },
-          { label: '深股通', value: lastSgt ?? 0, color: (lastSgt ?? 0) > 0 ? 'text-accent-red' : 'text-accent-green' },
-        ].map(item => (
-          <div key={item.label} className="px-4 py-2 bg-bg-primary rounded-lg border border-border">
-            <div className="text-xs text-text-muted">{item.label}</div>
-            <div className={`text-lg font-semibold ${item.color}`}>
-              {item.value > 0 ? '+' : ''}{item.value.toFixed(2)} 亿
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex gap-4">
+          {[
+            { label: '北向合计', value: total, color: total > 0 ? 'text-accent-red' : 'text-accent-green' },
+            { label: '沪股通', value: lastHgt ?? 0, color: (lastHgt ?? 0) > 0 ? 'text-accent-red' : 'text-accent-green' },
+            { label: '深股通', value: lastSgt ?? 0, color: (lastSgt ?? 0) > 0 ? 'text-accent-red' : 'text-accent-green' },
+          ].map(item => (
+            <div key={item.label} className="px-4 py-2 bg-bg-primary rounded-lg border border-border">
+              <div className="text-xs text-text-muted">{item.label}</div>
+              <div className={`text-lg font-semibold ${item.color}`}>
+                {item.value > 0 ? '+' : ''}{item.value.toFixed(2)} 亿
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        {lastUpdate && <span className="text-[11px] text-text-muted pt-1">上次更新 {lastUpdate}</span>}
       </div>
       {data && data.realtime.length > 0 ? (
         <div ref={chartRef} style={{ height: 350, width: '100%' }} />

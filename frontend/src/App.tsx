@@ -95,9 +95,9 @@ export default function App() {
           ))}
         </div>
         <div className="bg-bg-card rounded-xl border border-border p-5">
-          {activeTab === 'heatmap' && <Heatmap signals={signals} loading={loading} />}
-          {activeTab === 'shares' && <SharesBar signals={signals} loading={loading} />}
-          {activeTab === 'flow' && <FlowChart signals={signals} loading={loading} />}
+          {activeTab === 'heatmap' && <Heatmap signals={signals} loading={loading} lastUpdate={lastUpdate} />}
+          {activeTab === 'shares' && <SharesBar signals={signals} loading={loading} lastUpdate={lastUpdate} />}
+          {activeTab === 'flow' && <FlowChart signals={signals} loading={loading} lastUpdate={lastUpdate} />}
           {activeTab === 'accumulation' && <AccumulationChart />}
           {activeTab === 'backtest' && <BacktestChart />}
           {activeTab === 'northbound' && <NorthboundChart />}
@@ -106,7 +106,7 @@ export default function App() {
           {activeTab === 'hot-themes' && <HotThemes />}
         </div>
         <div className="mt-4">
-          <SignalTable signals={signals} loading={loading} />
+          <SignalTable signals={signals} loading={loading} lastUpdate={lastUpdate} />
         </div>
       </main>
 

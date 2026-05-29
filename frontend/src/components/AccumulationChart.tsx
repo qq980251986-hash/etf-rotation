@@ -35,6 +35,7 @@ export function AccumulationChart() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [accuracy, setAccuracy] = useState<PredictionAccuracy | null>(null);
+  const [lastUpdate, setLastUpdate] = useState('');
   const chartRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
@@ -54,6 +55,7 @@ export function AccumulationChart() {
         if (!cancelled) {
           _cache.set(period, d);
           setData(d);
+          setLastUpdate(new Date().toLocaleTimeString('zh-CN'));
         }
       })
       .catch(() => { if (!cancelled) setError('数据加载失败'); })
@@ -144,23 +146,26 @@ export function AccumulationChart() {
   return (
     <div>
       {/* 周期选择器 */}
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-sm text-text-muted">分析周期:</span>
-        <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
-          {periods.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                period === p.value
-                  ? 'bg-accent-gold/15 text-accent-gold'
-                  : 'text-text-muted hover:text-text-secondary'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-text-muted">分析周期:</span>
+          <div className="flex gap-1 p-1 bg-bg-primary rounded-lg border border-border">
+            {periods.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setPeriod(p.value)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  period === p.value
+                    ? 'bg-accent-gold/15 text-accent-gold'
+                    : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
+        {lastUpdate && <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>}
       </div>
 
       {/* 图表 */}

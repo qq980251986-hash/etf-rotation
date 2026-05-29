@@ -3,6 +3,7 @@ import type { Signal } from '../api';
 interface Props {
   signals: Signal[];
   loading: boolean;
+  lastUpdate?: string;
 }
 
 function scoreColor(score: number): string {
@@ -19,7 +20,7 @@ function flowColor(val: number): string {
   return 'text-text-secondary';
 }
 
-export function SignalTable({ signals, loading }: Props) {
+export function SignalTable({ signals, loading, lastUpdate }: Props) {
   if (loading) {
     return (
       <div className="bg-bg-card rounded-xl border border-border overflow-hidden">
@@ -34,6 +35,11 @@ export function SignalTable({ signals, loading }: Props) {
 
   return (
     <div className="bg-bg-card rounded-xl border border-border overflow-hidden">
+      {lastUpdate && (
+        <div className="flex justify-end px-4 pt-3">
+          <span className="text-[11px] text-text-muted">上次更新 {lastUpdate}</span>
+        </div>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-text-muted text-xs">
