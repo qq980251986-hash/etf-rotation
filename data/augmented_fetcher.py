@@ -213,25 +213,113 @@ def fetch_dragon_tiger_daily(trade_date: str = None) -> pd.DataFrame:
 
 # ---- 4. 同花顺热点题材归因（TTL 30min）----
 
+def _get_liutongguben_cache() -> dict:
+    """获取流通股本缓存（TTL 7 天，流通股本很少变动）"""
+    cache_key = "liutongguben"
+    cached = _read_disk_cache(cache_key, ttl_seconds=7 * 86400)
+    if cached is not None and not cached.empty:
+        return dict(zip(cached["code"], cached["liutongguben"]))
+    return {}
+
+
+def _save_liutongguben_cache(quote_map: dict):
+    """保存流通股本缓存"""
+    rows = [{"code": k, "liutongguben": v} for k, v in quote_map.items() if v]
+    if rows:
+        _write_disk_cache("liutongguben", pd.DataFrame(rows))
+
+
 def _enrich_quotes_from_eastmoney(df: pd.DataFrame):
-    """用东财行情 API 批量补充涨幅%、换手率%、收盘价"""
+    """用 mootdx 批量补充涨幅%、换手率%、收盘价（东财 push2 不稳定时自动降级）"""
+    from mootdx.quotes import Quotes
+
     codes = df["代码"].tolist()
-    # 构造 secid: 6 开头=沪市(1.), 其余=深市(0.)
-    secids = [
-        f"1.{c}" if c.startswith("6") else f"0.{c}" for c in codes
-    ]
-    # 东财字段: f2=最新价, f3=涨跌幅, f8=换手率, f12=代码
-    url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
-    params = {
-        "fields": "f2,f3,f8,f12",
-        "secids": ",".join(secids),
-    }
+
+    # ---- 1) mootdx 批量取实时行情 ----
     try:
-        r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=10)
+        client = Quotes.factory(market="std")
+        # mootdx 单次上限约 80 只，分批
+        batch_size = 80
+        all_quotes = []
+        for i in range(0, len(codes), batch_size):
+            batch = codes[i : i + batch_size]
+            q = client.quotes(symbol=batch)
+            if q is not None and not q.empty:
+                all_quotes.append(q[["code", "price", "last_close", "vol"]])
+        quotes_df = pd.concat(all_quotes, ignore_index=True) if all_quotes else pd.DataFrame()
+    except Exception as e:
+        _logger.warning(f"mootdx 行情获取失败: {e}")
+        quotes_df = pd.DataFrame()
+
+    if quotes_df.empty:
+        _logger.warning("mootdx 无行情数据，尝试东财 push2 降级")
+        _enrich_quotes_from_eastmoney_fallback(df)
+        return
+
+    # ---- 2) 构建行情 map ----
+    quote_map = {}
+    for _, r in quotes_df.iterrows():
+        code = str(r["code"])
+        price = r["price"]
+        last_close = r["last_close"]
+        vol = r["vol"]  # 手（1手=100股）
+        if last_close and last_close > 0:
+            chg = round((price - last_close) / last_close * 100, 2)
+        else:
+            chg = 0.0
+        quote_map[code] = {"收盘价": price, "涨幅%": chg, "vol": vol}
+
+    # ---- 3) 换手率: vol * 100 / 流通股本 * 100 ----
+    ltgb_cache = _get_liutongguben_cache()
+    missing_codes = [c for c in codes if c not in ltgb_cache]
+
+    if missing_codes:
+        try:
+            for code in missing_codes:
+                fin = client.finance(symbol=code)
+                if fin is not None and not fin.empty:
+                    ltgb_cache[code] = float(fin.iloc[0]["liutongguben"])
+            _save_liutongguben_cache(ltgb_cache)
+        except Exception as e:
+            _logger.warning(f"mootdx 流通股本获取失败: {e}")
+
+    for code, q in quote_map.items():
+        vol = q.get("vol", 0)
+        ltgb = ltgb_cache.get(code)
+        if vol and ltgb and ltgb > 0:
+            # vol 单位是手(100股), liutongguben 单位是股
+            q["换手率%"] = round(vol * 100 / ltgb * 100, 2)
+        else:
+            q["换手率%"] = None
+
+    # ---- 4) 写回 DataFrame ----
+    for col in ("收盘价", "涨幅%", "换手率%"):
+        if col not in df.columns:
+            df[col] = None
+
+    for idx, row in df.iterrows():
+        q = quote_map.get(row["代码"], {})
+        for col in ("收盘价", "涨幅%", "换手率%"):
+            val = q.get(col)
+            if val is not None:
+                df.at[idx, col] = val
+
+
+def _enrich_quotes_from_eastmoney_fallback(df: pd.DataFrame):
+    """东财 push2 API 降级方案（mootdx 不可用时兜底）"""
+    codes = df["代码"].tolist()
+    secids = [f"1.{c}" if c.startswith("6") else f"0.{c}" for c in codes]
+    url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+    params = {"fields": "f2,f3,f8,f12", "secids": ",".join(secids)}
+    try:
+        r = requests.get(url, params=params, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer": "https://quote.eastmoney.com/",
+        }, timeout=15)
         diff = (r.json().get("data") or {}).get("diff") or []
     except Exception as e:
-        _logger.warning(f"东财单股行情补充失败: {e}")
-        diff = []
+        _logger.warning(f"东财 push2 降级也失败: {e}")
+        return
 
     quote_map = {}
     for item in diff:
