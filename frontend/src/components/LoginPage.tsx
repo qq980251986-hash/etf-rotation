@@ -34,7 +34,7 @@ export function LoginPage() {
             <span className="text-accent-gold font-bold text-xl">ETF</span>
           </div>
           <h1 className="text-xl font-semibold text-text-primary tracking-tight">
-            主力轮动监测
+            🚀左脚踩右脚螺旋升天系统
           </h1>
           <p className="mt-1.5 text-sm text-text-muted">请输入密码以访问</p>
         </div>

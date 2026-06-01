@@ -61,7 +61,7 @@ function Dashboard() {
             ETF
           </div>
           <h1 className="text-lg font-semibold text-text-primary tracking-tight">
-            主力轮动监测
+            🚀左脚踩右脚螺旋升天系统
           </h1>
         </div>
         <div className="flex items-center gap-4 text-sm text-text-muted">
