@@ -2,6 +2,7 @@
 
 import sys
 import os
+import hmac
 import datetime
 import logging
 import threading
@@ -12,7 +13,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from itsdangerous import TimestampSigner
 import pandas as pd
 
 from data.fetcher import get_industry_etf_quotes, fetch_etf_history, warm_up
@@ -46,6 +50,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── 认证：环境变量 AUTH_PASSWORD 控制，未设置则完全放行 ──────────────
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "")
+_auth_signer = TimestampSigner(AUTH_PASSWORD) if AUTH_PASSWORD else None
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """拦截 /api/* 请求，验证签名 cookie；未设密码时完全放行"""
+
+    async def dispatch(self, request: Request, call_next):
+        if not AUTH_PASSWORD:
+            return await call_next(request)
+        path = request.url.path
+        # 白名单：登录/检查/健康 + 非 API 路径（SPA 静态文件）
+        if path in ("/api/login", "/api/auth/check", "/api/health") or not path.startswith("/api/"):
+            return await call_next(request)
+        token = request.cookies.get("etf_session")
+        if token and _auth_signer and _auth_signer.validate(token, max_age=86400):
+            return await call_next(request)
+        return JSONResponse({"detail": "未登录或会话已过期"}, status_code=401)
+
+
+app.add_middleware(AuthMiddleware)
 
 
 def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
@@ -739,11 +766,56 @@ def _full_refresh_loop(interval_minutes: int = 30):
 @app.on_event("startup")
 def on_startup():
     """服务启动时：后台线程预热数据层 + API 缓存 + 定时刷新"""
+    if AUTH_PASSWORD:
+        logger.info("认证已启用，访问需登录")
+    else:
+        logger.warning("⚠️  AUTH_PASSWORD 未设置，系统完全开放")
     def _startup():
         warm_up()
         refresh_api_cache()
     threading.Thread(target=_startup, daemon=True).start()
     threading.Thread(target=_full_refresh_loop, args=(30,), daemon=True).start()
+
+
+# ── 认证端点 ─────────────────────────────────────────────────────────
+from pydantic import BaseModel as _PydanticBaseModel
+
+
+class _LoginBody(_PydanticBaseModel):
+    password: str
+
+
+@app.post("/api/login")
+async def login(body: _LoginBody):
+    if not AUTH_PASSWORD:
+        return {"ok": True}
+    if not hmac.compare_digest(body.password, AUTH_PASSWORD):
+        return JSONResponse({"detail": "密码错误"}, status_code=401)
+    token = _auth_signer.sign("etf").decode()
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        "etf_session", token,
+        httponly=True, samesite="lax", max_age=86400,
+        secure=False,  # 生产环境建议改为 True（需要 HTTPS）
+    )
+    return resp
+
+
+@app.post("/api/logout")
+async def logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("etf_session")
+    return resp
+
+
+@app.get("/api/auth/check")
+async def auth_check(request: Request):
+    if not AUTH_PASSWORD:
+        return {"authenticated": True}
+    token = request.cookies.get("etf_session")
+    if token and _auth_signer and _auth_signer.validate(token, max_age=86400):
+        return {"authenticated": True}
+    return {"authenticated": False}
 
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")

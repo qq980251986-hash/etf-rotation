@@ -1,5 +1,47 @@
 const BASE = '/api';
 
+// ── 统一 fetch 包装：自动携带 cookie + 401 拦截 ────────────────────
+let _onUnauthorized: (() => void) | null = null;
+
+/** 由 AuthContext 注册，收到 401 时触发跳转登录 */
+export function setOnUnauthorized(cb: () => void) {
+  _onUnauthorized = cb;
+}
+
+async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(url, { ...init, credentials: 'include' });
+  if (res.status === 401 && _onUnauthorized) _onUnauthorized();
+  return res;
+}
+
+// ── 认证接口 ───────────────────────────────────────────────────────
+
+export async function login(password: string): Promise<{ ok: boolean }> {
+  const res = await apiFetch(`${BASE}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) throw new Error('密码错误');
+  return res.json();
+}
+
+export async function logout(): Promise<void> {
+  await apiFetch(`${BASE}/logout`, { method: 'POST' });
+}
+
+export async function checkAuth(): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${BASE}/auth/check`);
+    const data = await res.json();
+    return data.authenticated === true;
+  } catch {
+    return false;
+  }
+}
+
+// ── 数据接口 ───────────────────────────────────────────────────────
+
 export interface Signal {
   sector: string;
   rs_5d: number | null;
@@ -43,13 +85,13 @@ export interface Accumulation {
 }
 
 export async function fetchSignals(): Promise<Signal[]> {
-  const res = await fetch(`${BASE}/signals`);
+  const res = await apiFetch(`${BASE}/signals`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
 
 export async function fetchAccumulation(period: string): Promise<Accumulation[]> {
-  const res = await fetch(`${BASE}/accumulation?period=${period}`);
+  const res = await apiFetch(`${BASE}/accumulation?period=${period}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -71,7 +113,7 @@ export interface BacktestResult {
 }
 
 export async function fetchBacktest(period: number, hold: number, topN: number): Promise<BacktestResult> {
-  const res = await fetch(`${BASE}/backtest?period=${period}&hold=${hold}&top_n=${topN}`);
+  const res = await apiFetch(`${BASE}/backtest?period=${period}&hold=${hold}&top_n=${topN}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -84,7 +126,7 @@ export interface PredictionAccuracy {
 }
 
 export async function fetchPredictionAccuracy(forwardDays: number = 5): Promise<PredictionAccuracy> {
-  const res = await fetch(`${BASE}/prediction-accuracy?forward_days=${forwardDays}`);
+  const res = await apiFetch(`${BASE}/prediction-accuracy?forward_days=${forwardDays}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -97,7 +139,7 @@ export interface NorthboundData {
 }
 
 export async function fetchNorthbound(): Promise<NorthboundData> {
-  const res = await fetch(`${BASE}/northbound`);
+  const res = await apiFetch(`${BASE}/northbound`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -119,7 +161,7 @@ export interface IndustryData {
 }
 
 export async function fetchIndustryRanking(topN: number = 30): Promise<IndustryData> {
-  const res = await fetch(`${BASE}/industry-ranking?top_n=${topN}`);
+  const res = await apiFetch(`${BASE}/industry-ranking?top_n=${topN}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -144,7 +186,7 @@ export interface DragonTigerData {
 
 export async function fetchDragonTiger(tradeDate?: string): Promise<DragonTigerData> {
   const params = tradeDate ? `?trade_date=${tradeDate}` : '';
-  const res = await fetch(`${BASE}/dragon-tiger${params}`);
+  const res = await apiFetch(`${BASE}/dragon-tiger${params}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -167,7 +209,7 @@ export interface HotThemeData {
 
 export async function fetchHotThemes(date?: string): Promise<HotThemeData> {
   const params = date ? `?date=${date}` : '';
-  const res = await fetch(`${BASE}/hot-themes${params}`);
+  const res = await apiFetch(`${BASE}/hot-themes${params}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }

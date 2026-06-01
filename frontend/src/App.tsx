@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchSignals, type Signal } from './api';
+import { AuthProvider, useAuth } from './components/AuthContext';
+import { LoginPage } from './components/LoginPage';
 import { SignalCards } from './components/SignalCards';
 import { Heatmap } from './components/Heatmap';
 import { SharesBar } from './components/SharesBar';
@@ -26,7 +28,9 @@ const tabs: { key: Tab; label: string }[] = [
   { key: 'hot-themes', label: '热点题材' },
 ];
 
-export default function App() {
+/** 主面板（需要认证后才渲染） */
+function Dashboard() {
+  const { logout } = useAuth();
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -68,6 +72,12 @@ export default function App() {
             className="px-3 py-1.5 rounded-md bg-bg-card border border-border text-text-secondary hover:text-text-primary hover:border-accent-gold/40 transition-colors disabled:opacity-50"
           >
             {loading ? '加载中...' : '刷新'}
+          </button>
+          <button
+            onClick={logout}
+            className="px-3 py-1.5 rounded-md bg-bg-card border border-border text-text-secondary hover:text-accent-red hover:border-accent-red/40 transition-colors"
+          >
+            退出
           </button>
         </div>
       </header>
@@ -114,5 +124,36 @@ export default function App() {
         数据源: 东方财富(AKShare) + 同花顺/东财直连 | 信号仅供参考，不构成投资建议
       </footer>
     </div>
+  );
+}
+
+/** 认证守卫：根据状态渲染登录页或主面板 */
+function AppInner() {
+  const { authenticated } = useAuth();
+
+  // 检查 session 中
+  if (authenticated === null) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-accent-gold border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  // 未登录 → 显示登录页
+  if (!authenticated) {
+    return <LoginPage />;
+  }
+
+  // 已登录 → 主面板
+  return <Dashboard />;
+}
+
+/** 应用入口 */
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
   );
 }
