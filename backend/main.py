@@ -7,6 +7,11 @@ import datetime
 import logging
 import threading
 import time
+from pathlib import Path
+
+# 自动加载项目根目录的 .env 文件
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
