@@ -31,12 +31,18 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
       const sectors = signals.map((s) => s.sector).reverse();
       const periods = ['5日', '10日', '20日'];
 
+      // 用 NaN 标记缺失数据，ECharts 不会渲染该格子（显示为透明/空）
+      const MISSING = NaN;
       const data: number[][] = [];
+      const missingSet = new Set<string>();
       signals.forEach((s, i) => {
         const ri = signals.length - 1 - i;
-        data.push([0, ri, s.rs_5d ?? 0]);
-        data.push([1, ri, s.rs_10d ?? 0]);
-        data.push([2, ri, s.rs_20d ?? 0]);
+        const vals = [s.rs_5d, s.rs_10d, s.rs_20d];
+        vals.forEach((v, ci) => {
+          const val = v != null ? v : MISSING;
+          data.push([ci, ri, val]);
+          if (v == null) missingSet.add(`${ci}-${ri}`);
+        });
       });
 
       instanceRef.current.setOption({
@@ -45,7 +51,11 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
         tooltip: {
           formatter: (p: any) => {
             const d = p.data;
-            return `<b>${sectors[d[1]]}</b> ${periods[d[0]]}<br/>RS: <b>${d[2].toFixed(3)}</b>`;
+            const v = d[2];
+            if (v == null || Number.isNaN(v)) {
+              return `<b>${sectors[d[1]]}</b> ${periods[d[0]]}<br/>RS: <b>数据缺失</b>`;
+            }
+            return `<b>${sectors[d[1]]}</b> ${periods[d[0]]}<br/>RS: <b>${v.toFixed(3)}</b>`;
           },
         },
         grid: { left: 90, right: 40, top: 20, bottom: 40 },
@@ -77,11 +87,24 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
           data,
           label: {
             show: true,
-            formatter: (p: any) => p.data[2] ? p.data[2].toFixed(2) : '',
+            formatter: (p: any) => {
+              const v = p.data[2];
+              if (v == null || Number.isNaN(v)) return '-';
+              return v.toFixed(2);
+            },
             color: '#e2e8f0',
             fontSize: 10,
           },
-          itemStyle: { borderWidth: 2, borderColor: '#111827' },
+          itemStyle: {
+            borderWidth: 2,
+            borderColor: '#111827',
+            color: (params: any) => {
+              const v = params.data[2];
+              // 缺失数据格子用深灰色
+              if (v == null || Number.isNaN(v)) return '#1e293b';
+              return undefined; // 让 visualMap 控制颜色
+            },
+          },
         }],
       }, true);
     } catch (e) {

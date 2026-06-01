@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import time
+
 import numpy as np
 import pandas as pd
 
 from data.etf_list import INDUSTRY_ETFS
 from data.fetcher import fetch_etf_history, fetch_benchmark_history
+
+_logger = logging.getLogger("etf.rotation")
 
 
 def calc_return(df: pd.DataFrame, days: int) -> float:
@@ -14,6 +19,20 @@ def calc_return(df: pd.DataFrame, days: int) -> float:
     if len(df) < days + 1:
         return np.nan
     return (df["收盘"].iloc[-1] / df["收盘"].iloc[-1 - days] - 1) * 100
+
+
+def _fetch_history_with_retry(code: str, max_days: int, retries: int = 2, delay: float = 2.0):
+    """带重试的历史数据获取，返回 DataFrame 或 None"""
+    for attempt in range(retries + 1):
+        try:
+            return fetch_etf_history(code, max_days)
+        except Exception as e:
+            if attempt < retries:
+                _logger.warning(f"ETF {code} 历史数据获取失败 (第{attempt + 1}次)，{delay}s 后重试: {e}")
+                time.sleep(delay)
+            else:
+                _logger.error(f"ETF {code} 历史数据获取最终失败 ({retries + 1}次尝试): {e}")
+                return None
 
 
 def compute_rs_matrix(periods: list[int] | None = None) -> tuple[pd.DataFrame, str | None]:
@@ -31,9 +50,14 @@ def compute_rs_matrix(periods: list[int] | None = None) -> tuple[pd.DataFrame, s
 
     rows = []
     for name, code in INDUSTRY_ETFS.items():
-        try:
-            hist = fetch_etf_history(code, max_days)
-        except Exception:
+        hist = _fetch_history_with_retry(code, max_days)
+        if hist is None:
+            # 即使获取失败也保留行，RS 值为 None
+            row = {"sector": name}
+            for p in periods:
+                row[f"ret_{p}d"] = None
+                row[f"RS_{p}d"] = None
+            rows.append(row)
             continue
 
         row = {"sector": name}

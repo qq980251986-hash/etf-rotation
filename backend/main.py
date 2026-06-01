@@ -7,11 +7,6 @@ import datetime
 import logging
 import threading
 import time
-from pathlib import Path
-
-# 自动加载项目根目录的 .env 文件
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -56,9 +51,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── 认证：环境变量 AUTH_PASSWORD 控制，未设置则完全放行 ──────────────
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "")
-_auth_signer = TimestampSigner(AUTH_PASSWORD) if AUTH_PASSWORD else None
+# ── 认证密码 ─────────────────────────────────────────────────────────
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "pXnxEfqMchZJQ64")
+_auth_signer = TimestampSigner(AUTH_PASSWORD)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
