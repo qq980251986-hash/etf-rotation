@@ -268,13 +268,19 @@ def fetch_industry_ranking(top_n: int = 30) -> pd.DataFrame:
     return _cached_fetch("industry_ranking", 7200, lambda: _fetch())
 
 
-# ---- 3. 全市场龙虎榜（磁盘 TTL 24h，每日只更新一次）----
+# ---- 3. 全市场龙虎榜（磁盘 TTL 24h，空结果不缓存，防止盘后数据覆盖）----
 
 @lru_cache(maxsize=4)
 def fetch_dragon_tiger_daily(trade_date: str = None) -> pd.DataFrame:
-    """每日全市场龙虎榜"""
+    """每日全市场龙虎榜
+
+    注意：龙虎榜数据在盘后 ~17:00 才发布，盘中获取为空。
+    空结果不写入磁盘缓存，避免"缓存中毒"导致盘后拿不到数据。
+    """
     if trade_date is None:
         trade_date = datetime.date.today().strftime("%Y-%m-%d")
+
+    cache_key = f"dragon_tiger_{trade_date}"
 
     def _fetch():
         data = _eastmoney_datacenter(
@@ -301,7 +307,20 @@ def fetch_dragon_tiger_daily(trade_date: str = None) -> pd.DataFrame:
             })
         return pd.DataFrame(rows)
 
-    return _cached_fetch(f"dragon_tiger_{trade_date}", 86400, _fetch)
+    # 磁盘缓存：有非空数据直接返回
+    disk_df = _read_disk_cache(cache_key, 86400)
+    if disk_df is not None and not disk_df.empty:
+        return disk_df
+
+    # 重新获取
+    df = _fetch()
+
+    # 核心修复：空结果不写磁盘，防止"缓存中毒"
+    # 盘中(数据未发布)拿到的空结果不会阻止盘后重新获取
+    if not df.empty:
+        _write_disk_cache(cache_key, df)
+
+    return df
 
 
 # ---- 4. 同花顺热点题材归因（磁盘 TTL 4h，每日只更新一次）----

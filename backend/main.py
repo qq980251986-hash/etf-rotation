@@ -721,7 +721,9 @@ def get_dragon_tiger(trade_date: str = None):
             "total": len(stocks),
             "stocks": stocks,
         }
-        _set_cached(f"dragon_tiger_{trade_date}", result)
+        # 空结果不缓存 API 响应，防止盘后数据发布后仍返回空
+        if stocks:
+            _set_cached(f"dragon_tiger_{trade_date}", result)
         return result
     except Exception as e:
         logger.warning(f"龙虎榜失败: {e}")
@@ -841,6 +843,7 @@ def _smart_refresh():
         fetch_dragon_tiger_daily as _dt,
         fetch_hot_themes as _ht,
         _read_disk_cache_ts as _disk_ts_aug,
+        _read_disk_cache as _read_disk_cache_aug,
     )
     from data.etf_list import RS_BENCHMARK
 
@@ -901,15 +904,34 @@ def _smart_refresh():
             except Exception as e:
                 logger.warning(f"行业排名刷新失败: {e}")
 
-    # ---- 5. 龙虎榜：24h 内不重复刷新 ----
+    # ---- 5. 龙虎榜：17:30 后强制刷新（盘后数据发布窗口）----
     dt_key = f"dragon_tiger_{today}"
     dt_ts = _disk_ts_aug(dt_key)
-    if dt_ts is None or (time.time() - dt_ts) > 86400:
+    dt_age = (time.time() - dt_ts) if dt_ts else float("inf")
+
+    now = datetime.datetime.now()
+    after_publish = now.hour > 17 or (now.hour == 17 and now.minute >= 30)
+    should_refresh_dt = dt_ts is None or dt_age > 86400
+
+    # 17:30 后：如果磁盘缓存为空（盘中预热写入的），强制重新获取
+    if after_publish and not should_refresh_dt:
+        dt_cached = _read_disk_cache_aug(dt_key, 86400)
+        if dt_cached is not None and dt_cached.empty:
+            should_refresh_dt = True
+            logger.info("龙虎榜: 17:30 后检测到空缓存，强制刷新")
+
+    if should_refresh_dt:
         try:
             _dt.cache_clear()
-            _dt(today)
+            new_df = _dt(today)
             refreshed += 1
-            logger.info("刷新: 龙虎榜")
+            if not new_df.empty:
+                # 清除 API 响应缓存，确保下次请求拿到新数据
+                with _api_cache_lock:
+                    _api_cache.pop(f"dragon_tiger_{today}", None)
+                logger.info(f"刷新: 龙虎榜 ({len(new_df)} 条)")
+            else:
+                logger.info("刷新: 龙虎榜仍为空（可能今日无数据）")
         except Exception as e:
             logger.warning(f"龙虎榜刷新失败: {e}")
 
