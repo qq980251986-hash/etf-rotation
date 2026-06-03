@@ -76,21 +76,49 @@ def fetch_etf_quotes() -> pd.DataFrame:
 
 # ---- 历史K线（TTL 4h）----
 
+def _fetch_etf_history_mootdx(symbol: str, days: int) -> pd.DataFrame:
+    """mootdx 降级：从通达信服务器获取 ETF 日线 K 线"""
+    from mootdx.quotes import Quotes
+
+    client = Quotes.factory(market="std")
+    raw = client.bars(symbol=symbol, category=9, offset=max(days * 2, 60))
+
+    if raw is None or raw.empty:
+        raise ValueError(f"mootdx 返回空数据: {symbol}")
+
+    # mootdx 返回列: open, close, high, low, vol, amount, datetime, ...
+    # index 为 DatetimeIndex
+    df = pd.DataFrame({
+        "日期": pd.to_datetime(raw.index),
+        "收盘": pd.to_numeric(raw["close"], errors="coerce"),
+    })
+    df["涨跌幅"] = df["收盘"].pct_change() * 100
+    df = df.sort_values("日期").tail(days).reset_index(drop=True)
+    return df
+
+
 @lru_cache(maxsize=128)
 def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
     key = f"hist_{symbol}_{days}"
 
     def _fetch():
-        end_date = datetime.date.today().strftime("%Y%m%d")
-        start_date = (datetime.date.today() - datetime.timedelta(days=days * 2)).strftime("%Y%m%d")
-        df = _retry(lambda: ak.fund_etf_hist_em(
-            symbol=symbol, period="daily",
-            start_date=start_date, end_date=end_date, adjust="qfq",
-        ), retries=2, delay=3)
-        df["日期"] = pd.to_datetime(df["日期"])
-        df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
-        df["收盘"] = pd.to_numeric(df["收盘"], errors="coerce")
-        return df.sort_values("日期").tail(days)
+        # 主数据源：AKShare（东方财富）
+        try:
+            end_date = datetime.date.today().strftime("%Y%m%d")
+            start_date = (datetime.date.today() - datetime.timedelta(days=days * 2)).strftime("%Y%m%d")
+            df = _retry(lambda: ak.fund_etf_hist_em(
+                symbol=symbol, period="daily",
+                start_date=start_date, end_date=end_date, adjust="qfq",
+            ), retries=2, delay=3)
+            df["日期"] = pd.to_datetime(df["日期"])
+            df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
+            df["收盘"] = pd.to_numeric(df["收盘"], errors="coerce")
+            return df.sort_values("日期").tail(days)
+        except Exception as e:
+            _logger.warning(f"AKShare K线获取失败 {symbol}: {e}，尝试 mootdx 降级...")
+
+        # 降级数据源：mootdx（通达信）
+        return _fetch_etf_history_mootdx(symbol, days)
 
     return _cached_fetch(key, 14400, _fetch)
 
