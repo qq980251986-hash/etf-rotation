@@ -140,37 +140,76 @@ def fetch_northbound_history(n: int = 20) -> pd.DataFrame:
 
 # ---- 2. 行业板块排名（TTL 30min）----
 
+def _fetch_industry_ranking_push2() -> pd.DataFrame:
+    """数据源 A: 东财 push2 API（~100 个行业）"""
+    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1", "pz": "100", "po": "1", "np": "1",
+        "fltt": "2", "invt": "2",
+        "fs": "m:90+t:2",
+        "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
+    }
+    r = requests.get(url, params=params,
+                     headers={"User-Agent": UA}, timeout=15)
+    d = r.json()
+    items = d.get("data", {}).get("diff", [])
+    if not items:
+        return pd.DataFrame()
+
+    rows = []
+    for i, item in enumerate(items):
+        rows.append({
+            "rank": i + 1,
+            "name": item.get("f14", ""),
+            "change_pct": item.get("f3", 0),
+            "code": item.get("f12", ""),
+            "up_count": item.get("f104", 0),
+            "down_count": item.get("f105", 0),
+            "leader": item.get("f140", ""),
+            "leader_change": item.get("f136", 0),
+        })
+    return pd.DataFrame(rows)
+
+
+def _fetch_industry_ranking_akshare() -> pd.DataFrame:
+    """数据源 B: AKShare stock_sector_spot 降级方案（~49 个行业）"""
+    import akshare as ak
+    df = ak.stock_sector_spot()
+    if df.empty:
+        return df
+    # 按涨跌幅降序排列
+    df = df.sort_values("涨跌幅", ascending=False).reset_index(drop=True)
+    rows = []
+    for i, (_, r) in enumerate(df.iterrows()):
+        rows.append({
+            "rank": i + 1,
+            "name": r.get("板块", ""),
+            "change_pct": round(float(r.get("涨跌幅", 0)), 2),
+            "code": r.get("label", ""),
+            "up_count": 0,
+            "down_count": 0,
+            "leader": r.get("股票名称", ""),
+            "leader_change": round(float(r.get("个股-涨跌幅", 0)), 2),
+        })
+    return pd.DataFrame(rows)
+
+
 @lru_cache(maxsize=1)
 def fetch_industry_ranking(top_n: int = 30) -> pd.DataFrame:
-    """东财行业板块涨跌幅排名（~100 个行业）"""
+    """行业板块涨跌幅排名 — push2 优先，失败自动降级 AKShare"""
     def _fetch():
-        url = "https://push2.eastmoney.com/api/qt/clist/get"
-        params = {
-            "pn": "1", "pz": "100", "po": "1", "np": "1",
-            "fltt": "2", "invt": "2",
-            "fs": "m:90+t:2",
-            "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
-        }
-        r = requests.get(url, params=params,
-                         headers={"User-Agent": UA}, timeout=15)
-        d = r.json()
-        items = d.get("data", {}).get("diff", [])
-        if not items:
+        try:
+            df = _fetch_industry_ranking_push2()
+            if not df.empty:
+                return df
+            _logger.warning("push2 行业排名返回空数据，尝试 AKShare 降级")
+        except Exception as e:
+            _logger.warning(f"行业排名失败: {e}")
+        try:
+            return _fetch_industry_ranking_akshare()
+        except Exception as e2:
+            _logger.warning(f"AKShare 行业排名也失败: {e2}")
             return pd.DataFrame()
-
-        rows = []
-        for i, item in enumerate(items):
-            rows.append({
-                "rank": i + 1,
-                "name": item.get("f14", ""),
-                "change_pct": item.get("f3", 0),
-                "code": item.get("f12", ""),
-                "up_count": item.get("f104", 0),
-                "down_count": item.get("f105", 0),
-                "leader": item.get("f140", ""),
-                "leader_change": item.get("f136", 0),
-            })
-        return pd.DataFrame(rows)
 
     return _cached_fetch("industry_ranking", 1800, lambda: _fetch())
 
