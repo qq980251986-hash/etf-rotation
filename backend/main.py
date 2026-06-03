@@ -1,5 +1,6 @@
 """ETF 轮动监测 — FastAPI 后端"""
 
+import math
 import sys
 import os
 import hmac
@@ -41,6 +42,25 @@ def _sf(v, default=0.0):
         return default if (f != f or abs(f) == float('inf')) else f
     except (TypeError, ValueError):
         return default
+
+
+def _sanitize(obj):
+    """递归清理响应中的 NaN/inf，确保 JSON 可序列化"""
+    import numpy as np
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, (np.floating, np.integer)):
+        v = float(obj)
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
 
 app = FastAPI(title="ETF 轮动监测 API")
 
@@ -168,8 +188,8 @@ def get_rs_matrix():
                 "rank_change": r.get("rank_change"),
                 "direction": r.get("direction", "→ 持平"),
             }
-        _set_cached("rs_matrix", out)
-        return out
+        _set_cached("rs_matrix", _sanitize(out))
+        return _sanitize(out)
     except Exception as e:
         logger.warning(f"RS matrix failed: {e}")
         return {}
@@ -182,6 +202,23 @@ def get_signals():
     if cached is not None:
         return cached
 
+    try:
+        results = _compute_signals()
+        results = _sanitize(results)
+        _set_cached("signals", results)
+        return results
+    except Exception as e:
+        logger.error(f"/api/signals 异常: {e}", exc_info=True)
+        # 降级：返回上次缓存（如果有）或空列表，而非 500
+        stale = _api_cache.get("signals", {}).get("data")
+        if stale:
+            logger.warning("signals 降级返回上次缓存")
+            return _sanitize(stale)
+        return []
+
+
+def _compute_signals():
+    """signals 端点的核心逻辑，异常由 get_signals() 捕获"""
     quotes_df = get_industry_etf_quotes()
 
     # 自动保存当日份额快照
@@ -257,7 +294,6 @@ def get_signals():
         results[-1]["rs_date"] = rs_date
 
     results.sort(key=lambda x: x["composite_score"], reverse=True)
-    _set_cached("signals", results)
     return results
 
 
