@@ -172,22 +172,42 @@ def _fetch_industry_ranking_push2() -> pd.DataFrame:
 
 
 def _fetch_industry_ranking_akshare() -> pd.DataFrame:
-    """数据源 B: AKShare stock_sector_spot 降级方案（~49 个行业）"""
+    """数据源 B: AKShare stock_sector_spot 降级方案（~49 个行业，含涨跌家数）"""
     import akshare as ak
     df = ak.stock_sector_spot()
     if df.empty:
         return df
+
+    # 批量获取每个板块成分股，统计涨跌家数
+    up_down_map = {}
+    try:
+        for label in df["label"].tolist():
+            try:
+                cons = ak.stock_sector_detail(sector=label)
+                if cons is not None and not cons.empty and "changepercent" in cons.columns:
+                    up_down_map[label] = (
+                        int((cons["changepercent"] > 0).sum()),
+                        int((cons["changepercent"] < 0).sum()),
+                    )
+            except Exception:
+                pass
+        _logger.info(f"涨跌家数统计完成: {len(up_down_map)}/{len(df)} 个板块")
+    except Exception as e:
+        _logger.warning(f"涨跌家数统计失败: {e}")
+
     # 按涨跌幅降序排列
     df = df.sort_values("涨跌幅", ascending=False).reset_index(drop=True)
     rows = []
     for i, (_, r) in enumerate(df.iterrows()):
+        label = r.get("label", "")
+        up, down = up_down_map.get(label, (0, 0))
         rows.append({
             "rank": i + 1,
             "name": r.get("板块", ""),
             "change_pct": round(float(r.get("涨跌幅", 0)), 2),
-            "code": r.get("label", ""),
-            "up_count": 0,
-            "down_count": 0,
+            "code": label,
+            "up_count": up,
+            "down_count": down,
             "leader": r.get("股票名称", ""),
             "leader_change": round(float(r.get("个股-涨跌幅", 0)), 2),
         })
