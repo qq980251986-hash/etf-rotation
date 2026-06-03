@@ -8,6 +8,7 @@ import datetime
 import json
 import logging
 import pathlib
+import threading
 import time
 from functools import lru_cache
 
@@ -55,6 +56,37 @@ def _cached_fetch(key: str, ttl_seconds: int, fetch_fn):
     return df
 
 
+def _read_disk_cache_ts(key: str) -> float | None:
+    """返回磁盘缓存的时间戳，无缓存或已损坏返回 None（不判断 TTL）"""
+    meta_fp = _CACHE_DIR / f"{key}.meta.json"
+    if not meta_fp.exists():
+        return None
+    try:
+        return json.loads(meta_fp.read_text()).get("ts")
+    except Exception:
+        return None
+
+
+class _RateLimiter:
+    """简单令牌桶限速器 — 确保两次调用间隔 >= min_interval 秒"""
+    def __init__(self, min_interval: float = 1.0):
+        self._min_interval = min_interval
+        self._last_time = 0.0
+        self._lock = threading.Lock()
+
+    def wait(self):
+        with self._lock:
+            now = time.time()
+            elapsed = now - self._last_time
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_time = time.time()
+
+
+# 东财域名请求限速：至少间隔 1 秒
+_eastmoney_limiter = _RateLimiter(min_interval=1.0)
+
+
 # ---- 东财数据中心统一查询 ----
 
 def _eastmoney_datacenter(report_name: str, columns: str = "ALL",
@@ -66,6 +98,7 @@ def _eastmoney_datacenter(report_name: str, columns: str = "ALL",
         "sortColumns": sort_columns, "sortTypes": sort_types,
         "source": "WEB", "client": "WEB",
     }
+    _eastmoney_limiter.wait()
     r = requests.get(DATACENTER_URL, params=params,
                      headers={"User-Agent": UA}, timeout=15)
     d = r.json()
@@ -138,7 +171,7 @@ def fetch_northbound_history(n: int = 20) -> pd.DataFrame:
     return df.tail(n)
 
 
-# ---- 2. 行业板块排名（TTL 30min）----
+# ---- 2. 行业板块排名（磁盘 TTL 2h）----
 
 def _fetch_industry_ranking_push2() -> pd.DataFrame:
     """数据源 A: 东财 push2 API（~100 个行业）"""
@@ -149,6 +182,7 @@ def _fetch_industry_ranking_push2() -> pd.DataFrame:
         "fs": "m:90+t:2",
         "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
     }
+    _eastmoney_limiter.wait()
     r = requests.get(url, params=params,
                      headers={"User-Agent": UA}, timeout=15)
     d = r.json()
@@ -231,10 +265,10 @@ def fetch_industry_ranking(top_n: int = 30) -> pd.DataFrame:
             _logger.warning(f"AKShare 行业排名也失败: {e2}")
             return pd.DataFrame()
 
-    return _cached_fetch("industry_ranking", 1800, lambda: _fetch())
+    return _cached_fetch("industry_ranking", 7200, lambda: _fetch())
 
 
-# ---- 3. 全市场龙虎榜（TTL 4h）----
+# ---- 3. 全市场龙虎榜（磁盘 TTL 24h，每日只更新一次）----
 
 @lru_cache(maxsize=4)
 def fetch_dragon_tiger_daily(trade_date: str = None) -> pd.DataFrame:
@@ -267,10 +301,10 @@ def fetch_dragon_tiger_daily(trade_date: str = None) -> pd.DataFrame:
             })
         return pd.DataFrame(rows)
 
-    return _cached_fetch(f"dragon_tiger_{trade_date}", 14400, _fetch)
+    return _cached_fetch(f"dragon_tiger_{trade_date}", 86400, _fetch)
 
 
-# ---- 4. 同花顺热点题材归因（TTL 30min）----
+# ---- 4. 同花顺热点题材归因（磁盘 TTL 4h，每日只更新一次）----
 
 def _get_liutongguben_cache() -> dict:
     """获取流通股本缓存（TTL 7 天，流通股本很少变动）"""
@@ -371,6 +405,7 @@ def _enrich_quotes_from_eastmoney_fallback(df: pd.DataFrame):
     url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
     params = {"fields": "f2,f3,f8,f12", "secids": ",".join(secids)}
     try:
+        _eastmoney_limiter.wait()
         r = requests.get(url, params=params, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Referer": "https://quote.eastmoney.com/",
@@ -443,4 +478,4 @@ def fetch_hot_themes(date: str = None) -> pd.DataFrame:
 
         return df
 
-    return _cached_fetch(f"hot_themes_{date}", 1800, _fetch)
+    return _cached_fetch(f"hot_themes_{date}", 14400, _fetch)

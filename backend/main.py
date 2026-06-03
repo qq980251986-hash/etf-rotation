@@ -142,27 +142,31 @@ def get_quotes():
     if cached is not None:
         return cached
 
-    df = get_industry_etf_quotes()
-    results = []
-    for _, row in df.iterrows():
-        results.append({
-            "sector": row.get("sector", ""),
-            "code": row.get("代码", ""),
-            "name": row.get("名称", ""),
-            "price": _sf(row.get("最新价")),
-            "change_pct": _sf(row.get("涨跌幅")),
-            "turnover_yi": round(_sf(row.get("成交额(亿)")), 2),
-            "shares_yi": round(_sf(row.get("最新份额")) / 1e8, 2),
-            "market_cap_yi": round(_sf(row.get("流通市值")) / 1e8, 2),
-            "flow_yi": round(_sf(row.get("主力净流入-净额(亿)")), 2),
-            "flow_pct": _sf(row.get("主力净流入-净占比")),
-            "huge_yi": round(_sf(row.get("超大单净流入-净额(亿)")), 2),
-            "big_yi": round(_sf(row.get("大单净流入-净额(亿)")), 2),
-            "mid_yi": round(_sf(row.get("中单净流入-净额(亿)")), 2),
-            "small_yi": round(_sf(row.get("小单净流入-净额(亿)")), 2),
-        })
-    _set_cached("quotes", results)
-    return results
+    try:
+        df = get_industry_etf_quotes()
+        results = []
+        for _, row in df.iterrows():
+            results.append({
+                "sector": row.get("sector", ""),
+                "code": row.get("代码", ""),
+                "name": row.get("名称", ""),
+                "price": _sf(row.get("最新价")),
+                "change_pct": _sf(row.get("涨跌幅")),
+                "turnover_yi": round(_sf(row.get("成交额(亿)")), 2),
+                "shares_yi": round(_sf(row.get("最新份额")) / 1e8, 2),
+                "market_cap_yi": round(_sf(row.get("流通市值")) / 1e8, 2),
+                "flow_yi": round(_sf(row.get("主力净流入-净额(亿)")), 2),
+                "flow_pct": _sf(row.get("主力净流入-净占比")),
+                "huge_yi": round(_sf(row.get("超大单净流入-净额(亿)")), 2),
+                "big_yi": round(_sf(row.get("大单净流入-净额(亿)")), 2),
+                "mid_yi": round(_sf(row.get("中单净流入-净额(亿)")), 2),
+                "small_yi": round(_sf(row.get("小单净流入-净额(亿)")), 2),
+            })
+        _set_cached("quotes", results)
+        return results
+    except Exception as e:
+        logger.warning(f"quotes 获取失败，返回旧缓存: {e}")
+        return _get_stale("quotes") or []
 
 
 @app.get("/api/rs-matrix")
@@ -203,7 +207,7 @@ def get_rs_matrix():
         return sanitized
     except Exception as e:
         logger.warning(f"RS matrix failed: {e}")
-        return {}
+        return _get_stale("rs_matrix") or {}
 
 
 @app.get("/api/signals")
@@ -393,6 +397,15 @@ def _get_cached(key: str):
 def _set_cached(key: str, data):
     with _api_cache_lock:
         _api_cache[key] = {"ts": time.time(), "data": data}
+
+
+def _get_stale(key: str):
+    """获取过期但存在的旧缓存（用于降级兜底）"""
+    with _api_cache_lock:
+        entry = _api_cache.get(key)
+        if entry and "data" in entry:
+            return _sanitize(entry["data"])
+    return None
 
 
 @app.get("/api/backtest")
@@ -674,7 +687,7 @@ def get_industry_ranking(top_n: int = 30):
         return result
     except Exception as e:
         logger.warning(f"行业排名失败: {e}")
-        return {"top": [], "bottom": [], "total": 0}
+        return _get_stale(f"industry_ranking_{top_n}") or {"top": [], "bottom": [], "total": 0}
 
 
 @app.get("/api/dragon-tiger")
@@ -712,7 +725,7 @@ def get_dragon_tiger(trade_date: str = None):
         return result
     except Exception as e:
         logger.warning(f"龙虎榜失败: {e}")
-        return {"date": trade_date or "", "total": 0, "stocks": []}
+        return _get_stale(f"dragon_tiger_{trade_date}") or {"date": trade_date or "", "total": 0, "stocks": []}
 
 
 @app.get("/api/hot-themes")
@@ -748,7 +761,7 @@ def get_hot_themes(date: str = None):
         return result
     except Exception as e:
         logger.warning(f"热点题材失败: {e}")
-        return {"date": date or "", "total": 0, "stocks": []}
+        return _get_stale(f"hot_themes_{date}") or {"date": date or "", "total": 0, "stocks": []}
 
 
 def refresh_api_cache():
@@ -792,45 +805,146 @@ def refresh_api_cache():
 
 
 def _full_refresh_loop(interval_minutes: int = 30):
-    """后台定时刷新：数据层 LRU + API 响应缓存"""
+    """后台定时刷新：智能判断哪些缓存过期，只刷新需要更新的数据"""
     while True:
-        time.sleep(interval_minutes * 60)
-        logger.info("开始定时刷新...")
+        is_trading = _is_trading_hours()
+        interval = 15 * 60 if is_trading else 120 * 60  # 盘中 15min，盘后 2h
+        time.sleep(interval)
+        mode = "盘中" if is_trading else "盘后"
+        logger.info(f"开始定时刷新（{mode}模式）...")
         try:
-            # 清数据层 LRU
-            from data.fetcher import fetch_etf_quotes, fetch_etf_history, fetch_benchmark_history
-            from data.augmented_fetcher import (
-                fetch_northbound_realtime as _nb_rt,
-                fetch_industry_ranking as _ind_rk,
-                fetch_dragon_tiger_daily as _dt,
-                fetch_hot_themes as _ht,
-            )
-            for fn in [fetch_etf_quotes, fetch_etf_history, fetch_benchmark_history,
-                        _nb_rt, _ind_rk, _dt, _ht]:
-                try:
-                    fn.cache_clear()
-                except Exception:
-                    pass
-
-            warm_up()
-            refresh_api_cache()
-            logger.info("定时刷新完成")
+            _smart_refresh()
+            logger.info(f"定时刷新完成（{mode}模式）")
         except Exception as e:
             logger.warning(f"定时刷新失败: {e}")
 
 
+def _is_trading_hours() -> bool:
+    """判断当前是否在 A 股交易时段（工作日 9:25-15:05）"""
+    now = datetime.datetime.now()
+    if now.weekday() >= 5:  # 周末
+        return False
+    morning_open = now.replace(hour=9, minute=25, second=0, microsecond=0)
+    afternoon_close = now.replace(hour=15, minute=5, second=0, microsecond=0)
+    return morning_open <= now <= afternoon_close
+
+
+def _smart_refresh():
+    """智能刷新：只重新获取磁盘 TTL 真正过期的数据，不再核弹式清缓存"""
+    from data.fetcher import (
+        fetch_etf_quotes, fetch_etf_history,
+        _read_disk_cache_ts as _disk_ts,
+    )
+    from data.augmented_fetcher import (
+        fetch_northbound_realtime as _nb_rt,
+        fetch_industry_ranking as _ind_rk,
+        fetch_dragon_tiger_daily as _dt,
+        fetch_hot_themes as _ht,
+        _read_disk_cache_ts as _disk_ts_aug,
+    )
+    from data.etf_list import RS_BENCHMARK
+
+    is_trading = _is_trading_hours()
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    refreshed = 0
+
+    # ---- 1. ETF 行情：过期才刷新 ----
+    quotes_ts = _disk_ts("etf_quotes_all")
+    quotes_ttl = 3600 if is_trading else 86400
+    if quotes_ts is None or (time.time() - quotes_ts) > quotes_ttl:
+        try:
+            fetch_etf_quotes.cache_clear()
+            fetch_etf_quotes()
+            refreshed += 1
+            logger.info("刷新: ETF 行情")
+        except Exception as e:
+            logger.warning(f"行情刷新失败: {e}")
+
+    # ---- 2. ETF K 线：只刷新过期的（8h TTL） ----
+    all_codes = list(INDUSTRY_ETFS.values()) + [RS_BENCHMARK]
+    hist_refreshed = 0
+    for code in all_codes:
+        for days in [30, 90, 300]:
+            key = f"hist_{code}_{days}"
+            ts = _disk_ts(key)
+            if ts is None or (time.time() - ts) > 28800:
+                try:
+                    fetch_etf_history(code, days)
+                    hist_refreshed += 1
+                except Exception:
+                    pass
+                time.sleep(1.5)  # 每次请求间隔 1.5s
+    if hist_refreshed:
+        logger.info(f"刷新: {hist_refreshed} 条 K 线数据")
+
+    # ---- 3. 北向资金：仅盘中刷新 ----
+    if is_trading:
+        nb_ts = _disk_ts("northbound_realtime")
+        if nb_ts is None or (time.time() - nb_ts) > 300:
+            try:
+                _nb_rt.cache_clear()
+                _nb_rt()
+                refreshed += 1
+                logger.info("刷新: 北向资金")
+            except Exception as e:
+                logger.warning(f"北向刷新失败: {e}")
+
+    # ---- 4. 行业排名：仅盘中刷新 ----
+    if is_trading:
+        ir_ts = _disk_ts("industry_ranking")
+        if ir_ts is None or (time.time() - ir_ts) > 7200:
+            try:
+                _ind_rk.cache_clear()
+                _ind_rk(30)
+                refreshed += 1
+                logger.info("刷新: 行业排名")
+            except Exception as e:
+                logger.warning(f"行业排名刷新失败: {e}")
+
+    # ---- 5. 龙虎榜：24h 内不重复刷新 ----
+    dt_key = f"dragon_tiger_{today}"
+    dt_ts = _disk_ts_aug(dt_key)
+    if dt_ts is None or (time.time() - dt_ts) > 86400:
+        try:
+            _dt.cache_clear()
+            _dt(today)
+            refreshed += 1
+            logger.info("刷新: 龙虎榜")
+        except Exception as e:
+            logger.warning(f"龙虎榜刷新失败: {e}")
+
+    # ---- 6. 热门题材：4h 内不重复刷新 ----
+    ht_key = f"hot_themes_{today}"
+    ht_ts = _disk_ts_aug(ht_key)
+    if ht_ts is None or (time.time() - ht_ts) > 14400:
+        try:
+            _ht.cache_clear()
+            _ht(today)
+            refreshed += 1
+            logger.info("刷新: 热门题材")
+        except Exception as e:
+            logger.warning(f"热门题材刷新失败: {e}")
+
+    logger.info(f"本次刷新: {refreshed + hist_refreshed} 项数据更新")
+
+    # ---- 7. 用新数据更新 API 响应缓存 ----
+    refresh_api_cache()
+
+
 @app.on_event("startup")
 def on_startup():
-    """服务启动时：后台线程预热数据层 + API 缓存 + 定时刷新"""
+    """服务启动时：单线程顺序执行预热 → API 缓存 → 定时刷新循环"""
     if AUTH_PASSWORD:
         logger.info("认证已启用，访问需登录")
     else:
         logger.warning("⚠️  AUTH_PASSWORD 未设置，系统完全开放")
-    def _startup():
+
+    def _startup_and_loop():
         warm_up()
         refresh_api_cache()
-    threading.Thread(target=_startup, daemon=True).start()
-    threading.Thread(target=_full_refresh_loop, args=(30,), daemon=True).start()
+        _full_refresh_loop()  # 预热完成后才开始定时刷新
+
+    threading.Thread(target=_startup_and_loop, daemon=True).start()
 
 
 # ── 认证端点 ─────────────────────────────────────────────────────────

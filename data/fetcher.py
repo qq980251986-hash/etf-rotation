@@ -57,6 +57,37 @@ def _cached_fetch(key: str, ttl_seconds: int, fetch_fn):
     return df
 
 
+def _read_disk_cache_ts(key: str) -> float | None:
+    """返回磁盘缓存的时间戳，无缓存或已损坏返回 None（不判断 TTL）"""
+    meta_fp = _CACHE_DIR / f"{key}.meta.json"
+    if not meta_fp.exists():
+        return None
+    try:
+        return json.loads(meta_fp.read_text()).get("ts")
+    except Exception:
+        return None
+
+
+class _RateLimiter:
+    """简单令牌桶限速器 — 确保两次调用间隔 >= min_interval 秒"""
+    def __init__(self, min_interval: float = 1.0):
+        self._min_interval = min_interval
+        self._last_time = 0.0
+        self._lock = threading.Lock()
+
+    def wait(self):
+        with self._lock:
+            now = time.time()
+            elapsed = now - self._last_time
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_time = time.time()
+
+
+# 东财域名请求限速：至少间隔 1 秒
+_eastmoney_limiter = _RateLimiter(min_interval=1.0)
+
+
 def _retry(fn, retries=2, delay=3):
     for i in range(retries):
         try:
@@ -67,14 +98,17 @@ def _retry(fn, retries=2, delay=3):
             time.sleep(delay)
 
 
-# ---- 实时行情（TTL 30min）----
+# ---- 实时行情（磁盘 TTL 60min，LRU + API 缓存保鲜）----
 
 @lru_cache(maxsize=1)
 def fetch_etf_quotes() -> pd.DataFrame:
-    return _cached_fetch("etf_quotes_all", 1800, ak.fund_etf_spot_em)
+    def _fetch():
+        _eastmoney_limiter.wait()
+        return ak.fund_etf_spot_em()
+    return _cached_fetch("etf_quotes_all", 3600, _fetch)
 
 
-# ---- 历史K线（TTL 4h）----
+# ---- 历史K线（磁盘 TTL 8h，可覆盖过夜）----
 
 def _fetch_etf_history_mootdx(symbol: str, days: int) -> pd.DataFrame:
     """mootdx 降级：从通达信服务器获取 ETF 日线 K 线"""
@@ -102,7 +136,8 @@ def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
     key = f"hist_{symbol}_{days}"
 
     def _fetch():
-        # 主数据源：AKShare（东方财富）
+        # 主数据源：AKShare（东方财富）— 限速保护
+        _eastmoney_limiter.wait()
         try:
             end_date = datetime.date.today().strftime("%Y%m%d")
             start_date = (datetime.date.today() - datetime.timedelta(days=days * 2)).strftime("%Y%m%d")
@@ -120,7 +155,7 @@ def fetch_etf_history(symbol: str, days: int = 30) -> pd.DataFrame:
         # 降级数据源：mootdx（通达信）
         return _fetch_etf_history_mootdx(symbol, days)
 
-    return _cached_fetch(key, 14400, _fetch)
+    return _cached_fetch(key, 28800, _fetch)
 
 
 @lru_cache(maxsize=4)
@@ -168,7 +203,7 @@ def get_benchmark_quotes() -> pd.DataFrame:
 # ---- 预热 + 后台定时刷新 ----
 
 def warm_up():
-    """启动时串行预热所有缓存（带间隔避免限流）"""
+    """启动时串行预热所有缓存（1.5s 间隔，跳过已缓存的长周期 K 线）"""
     _logger.info("开始预热缓存...")
 
     try:
@@ -184,42 +219,14 @@ def warm_up():
         try:
             fetch_etf_history(code, 30)
             fetch_etf_history(code, 90)
-            fetch_etf_history(code, 300)
+            # 300 天 K 线仅回测使用，磁盘已有则跳过
+            if _read_disk_cache_ts(f"hist_{code}_300") is None:
+                fetch_etf_history(code, 300)
             success += 1
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(1.5)  # 1.5s 间隔 ≈ 0.67 req/s，避免触发限流
 
     _logger.info(f"历史缓存就绪: {success}/{len(all_codes)}")
 
 
-def _refresh_loop(interval_minutes: int = 30):
-    """后台定时刷新缓存"""
-    while True:
-        time.sleep(interval_minutes * 60)
-        _logger.info("开始定时刷新缓存...")
-        try:
-            fetch_etf_quotes.cache_clear()
-            fetch_etf_history.cache_clear()
-            fetch_benchmark_history.cache_clear()
-
-            fetch_etf_quotes()
-            from data.etf_list import RS_BENCHMARK
-            for code in list(INDUSTRY_ETFS.values()) + [RS_BENCHMARK]:
-                try:
-                    fetch_etf_history(code, 30)
-                    fetch_etf_history(code, 90)
-                    fetch_etf_history(code, 300)
-                except Exception:
-                    pass
-                time.sleep(0.5)
-            _logger.info("定时刷新完成")
-        except Exception as e:
-            _logger.warning(f"定时刷新失败: {e}")
-
-
-def start_background_refresh(interval_minutes: int = 30):
-    """启动后台刷新线程（daemon，随主进程退出）"""
-    t = threading.Thread(target=_refresh_loop, args=(interval_minutes,), daemon=True)
-    t.start()
-    _logger.info(f"后台刷新已启动（每 {interval_minutes} 分钟）")
