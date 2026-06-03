@@ -190,8 +190,17 @@ def get_rs_matrix():
                 "rank_change": r.get("rank_change"),
                 "direction": r.get("direction", "→ 持平"),
             }
-        _set_cached("rs_matrix", _sanitize(out))
-        return _sanitize(out)
+        sanitized = _sanitize(out)
+        # RS 全空时不缓存，避免脏数据占据缓存位
+        has_rs = any(
+            v.get("rs_5d") is not None or v.get("rs_10d") is not None or v.get("rs_20d") is not None
+            for v in sanitized.values()
+        )
+        if has_rs:
+            _set_cached("rs_matrix", sanitized)
+        else:
+            logger.warning("rs_matrix 结果全为空，跳过缓存")
+        return sanitized
     except Exception as e:
         logger.warning(f"RS matrix failed: {e}")
         return {}
@@ -207,7 +216,12 @@ def get_signals():
     try:
         results = _compute_signals()
         results = _sanitize(results)
-        _set_cached("signals", results)
+        # RS 全空时不缓存脏数据，避免热力图持续不可用
+        has_rs = any(r.get("rs_5d") is not None or r.get("rs_10d") is not None or r.get("rs_20d") is not None for r in results)
+        if has_rs:
+            _set_cached("signals", results)
+        else:
+            logger.warning("signals 计算结果 RS 全为空，跳过缓存")
         return results
     except Exception as e:
         logger.error(f"/api/signals 异常: {e}", exc_info=True)

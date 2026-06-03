@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from data.etf_list import INDUSTRY_ETFS
+from data.etf_list import INDUSTRY_ETFS, RS_BENCHMARK as _RS_BENCHMARK
 from data.fetcher import fetch_etf_history, fetch_benchmark_history
 
 _logger = logging.getLogger("etf.rotation")
@@ -35,6 +35,34 @@ def _fetch_history_with_retry(code: str, max_days: int, retries: int = 2, delay:
                 return None
 
 
+def _fetch_benchmark_with_retry(days: int, retries: int = 3, delay: float = 3.0):
+    """带重试 + 磁盘缓存降级的基准数据获取"""
+    for attempt in range(retries):
+        try:
+            df = fetch_benchmark_history(days)
+            if not df.empty:
+                return df
+            _logger.warning(f"基准数据返回空 DataFrame (第{attempt + 1}次)")
+        except Exception as e:
+            _logger.warning(f"基准数据获取失败 (第{attempt + 1}次): {e}")
+        if attempt < retries - 1:
+            time.sleep(delay)
+
+    # 最终降级：直接从磁盘缓存读取（忽略 TTL）
+    _logger.warning("基准数据获取全部失败，尝试读取磁盘缓存降级...")
+    try:
+        from data.fetcher import _read_disk_cache
+        key = f"hist_{_RS_BENCHMARK}_{days}"
+        cached = _read_disk_cache(key, ttl_seconds=999999999)
+        if cached is not None and not cached.empty:
+            _logger.info(f"基准数据降级成功，使用磁盘缓存 ({len(cached)} 行)")
+            return cached
+    except Exception as e:
+        _logger.error(f"磁盘缓存降级也失败: {e}")
+
+    return pd.DataFrame()
+
+
 def compute_rs_matrix(periods: list[int] | None = None) -> tuple[pd.DataFrame, str | None]:
     """计算所有行业 ETF 的 RS 矩阵
     返回 (DataFrame, data_date): index=板块名, columns=[RS_5d, RS_10d, RS_20d, ...]
@@ -44,7 +72,13 @@ def compute_rs_matrix(periods: list[int] | None = None) -> tuple[pd.DataFrame, s
         periods = [5, 10, 20]
 
     max_days = max(periods) + 10
-    benchmark_df = fetch_benchmark_history(max_days)
+    benchmark_df = _fetch_benchmark_with_retry(max_days)
+    if benchmark_df.empty:
+        _logger.error("基准数据完全不可用，RS 矩阵无法计算")
+        # 返回全空 RS 矩阵，而非抛异常
+        rows = [{"sector": name, **{f"RS_{p}d": None for p in periods}} for name in INDUSTRY_ETFS]
+        return pd.DataFrame(rows).set_index("sector"), None
+
     data_date = benchmark_df["日期"].iloc[-1].strftime("%Y-%m-%d") if not benchmark_df.empty else None
     benchmark_returns = {p: calc_return(benchmark_df, p) for p in periods}
 
