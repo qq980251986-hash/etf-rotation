@@ -29,7 +29,7 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
       }
 
       const sectors = signals.map((s) => s.sector).reverse();
-      const periods = ['5日', '10日', '20日'];
+      const periods = ['5日', '10日', '20日', '吸筹'];
 
       // 用 NaN 标记缺失数据，ECharts 不会渲染该格子（显示为透明/空）
       const MISSING = NaN;
@@ -43,6 +43,8 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
           data.push([ci, ri, val]);
           if (v == null) missingSet.add(`${ci}-${ri}`);
         });
+        // 第 4 列：吸筹指数
+        data.push([3, ri, s.accum_score]);
       });
 
       instanceRef.current.setOption({
@@ -54,6 +56,9 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
             const v = d[2];
             if (v == null || Number.isNaN(v)) {
               return `<b>${sectors[d[1]]}</b> ${periods[d[0]]}<br/>RS: <b>数据缺失</b>`;
+            }
+            if (d[0] === 3) {
+              return `<b>${sectors[d[1]]}</b> 吸筹指数<br/><b>${Math.round(v)}</b>`;
             }
             return `<b>${sectors[d[1]]}</b> ${periods[d[0]]}<br/>RS: <b>${v.toFixed(3)}</b>`;
           },
@@ -90,6 +95,8 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
             formatter: (p: any) => {
               const v = p.data[2];
               if (v == null || Number.isNaN(v)) return '-';
+              // 吸筹列显示整数
+              if (p.data[0] === 3) return Math.round(v).toString();
               return v.toFixed(2);
             },
             color: '#e2e8f0',
@@ -102,7 +109,16 @@ export function Heatmap({ signals, loading, lastUpdate }: Props) {
               const v = params.data[2];
               // 缺失数据格子用深灰色
               if (v == null || Number.isNaN(v)) return '#1e293b';
-              return undefined; // 让 visualMap 控制颜色
+              // 吸筹列：琥珀色梯度 (0=暗 → 100=金色)
+              const colIdx = params.data[0];
+              if (colIdx === 3) {
+                if (v <= 20) return '#1e293b';
+                if (v <= 40) return '#78350f';
+                if (v <= 60) return '#b45309';
+                if (v <= 80) return '#d97706';
+                return '#fbbf24';
+              }
+              return undefined; // RS 列让 visualMap 控制
             },
           },
         }],

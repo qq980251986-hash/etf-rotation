@@ -1,6 +1,8 @@
 """轮动信号评分系统 — 基于 ETF 级别数据"""
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -24,6 +26,24 @@ def score_rs(rs_value: float | None) -> float:
 def compute_composite_score(flow_score: float = 50.0, rs_score: float = 50.0) -> float:
     """综合评分 = 资金流×0.6 + RS×0.4"""
     return round(flow_score * 0.6 + rs_score * 0.4, 1)
+
+
+def score_accumulation(flow_yi: float, small_yi: float,
+                       change_pct: float, shares_change_pct: float) -> float:
+    """吸筹指数 (0-100): 资金流入 + 散户离场 + 价格不动 + 份额增长"""
+    # 1. 主力净流入 (0-40) — sigmoid 映射
+    big_money = 40.0 / (1.0 + math.exp(-flow_yi * 0.5))
+
+    # 2. 小单净流出 = 散户在卖 (0-20)
+    retail_sell = min(20.0, max(0.0, abs(min(0.0, small_yi)) * 4))
+
+    # 3. 价格平稳 = 主力在压制吸筹 (0-20)
+    price_stable = max(0.0, 20.0 * (1.0 - abs(change_pct) / 3.0))
+
+    # 4. ETF 份额增长 = 机构一级市场申购 (0-20)
+    share_growth = min(20.0, max(0.0, shares_change_pct * 4))
+
+    return round(big_money + retail_sell + price_stable + share_growth, 1)
 
 
 def signal_label(score: float) -> tuple[str, str]:

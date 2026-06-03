@@ -99,6 +99,7 @@ def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
                       direction="-", rs_score=50.0, flow_yi=0.0,
                       shares_yi=0.0, change_pct=0.0, flow_score=50.0,
                       market_cap_yi=0.0, shares_change=0.0, shares_change_pct=0.0,
+                      accum_score=0.0,
                       signal_text="", sell_recommend="", sell_tenths=0,
                       position_recommend="", position_tenths=0):
     comp = compute_composite_score(flow_score, rs_score)
@@ -125,6 +126,7 @@ def _build_signal_row(sector: str, rs_5d=None, rs_10d=None, rs_20d=None,
         "sell_tenths": sell_tenths,
         "position_recommend": position_recommend,
         "position_tenths": position_tenths,
+        "accum_score": round(accum_score, 1),
     }
 
 
@@ -249,12 +251,14 @@ def _compute_signals():
         shares_yi = 0.0
         change_pct = 0.0
         market_cap_yi = 0.0
+        small_yi = 0.0
         if not q.empty:
             r = q.iloc[0]
             flow_yi = _sf(r.get("主力净流入-净额(亿)"))
             shares_yi = _sf(r.get("最新份额")) / 1e8
             change_pct = _sf(r.get("涨跌幅"))
             market_cap_yi = _sf(r.get("流通市值")) / 1e8
+            small_yi = _sf(r.get("小单净流入-净额(亿)"))
 
         # 份额变化（亿份）
         sc = changes_map.get(code, {})
@@ -278,15 +282,17 @@ def _compute_signals():
         comp = compute_composite_score(flow_score, rs_score)
         label, icon = signal_label(comp)
 
-        from analytics.signals import position_recommendation
+        from analytics.signals import position_recommendation, score_accumulation
         rec = position_recommendation(comp, direction)
+        accum_score = score_accumulation(flow_yi, small_yi, change_pct, shares_change_pct)
 
         results.append(_build_signal_row(
             sector=sector, rs_5d=rs_5d, rs_10d=rs_10d, rs_20d=rs_20d,
             direction=direction, rs_score=rs_score, flow_yi=flow_yi,
             shares_yi=shares_yi, change_pct=change_pct, flow_score=flow_score,
             market_cap_yi=market_cap_yi, shares_change=shares_change,
-            shares_change_pct=shares_change_pct, signal_text=f"{icon} {label}",
+            shares_change_pct=shares_change_pct, accum_score=accum_score,
+            signal_text=f"{icon} {label}",
             sell_recommend=rec["sell_recommend"], sell_tenths=rec["sell_tenths"],
             position_recommend=rec["position_recommend"], position_tenths=rec["position_tenths"],
         ))

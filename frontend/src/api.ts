@@ -58,6 +58,7 @@ export interface Signal {
   market_cap_yi: number;
   shares_change: number;
   shares_change_pct: number;
+  accum_score: number;
   sell_recommend: string;
   sell_tenths: number;
   position_recommend: string;
