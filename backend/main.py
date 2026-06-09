@@ -834,7 +834,7 @@ def _is_trading_hours() -> bool:
 def _smart_refresh():
     """智能刷新：只重新获取磁盘 TTL 真正过期的数据，不再核弹式清缓存"""
     from data.fetcher import (
-        fetch_etf_quotes, fetch_etf_history,
+        fetch_etf_quotes, fetch_etf_history, fetch_benchmark_history,
         _read_disk_cache_ts as _disk_ts,
     )
     from data.augmented_fetcher import (
@@ -866,17 +866,30 @@ def _smart_refresh():
     # ---- 2. ETF K 线：只刷新过期的（8h TTL） ----
     all_codes = list(INDUSTRY_ETFS.values()) + [RS_BENCHMARK]
     hist_refreshed = 0
+
+    # 先扫描过期 K 线
+    expired_keys = []
     for code in all_codes:
         for days in [30, 90, 300]:
             key = f"hist_{code}_{days}"
             ts = _disk_ts(key)
             if ts is None or (time.time() - ts) > 28800:
-                try:
-                    fetch_etf_history(code, days)
-                    hist_refreshed += 1
-                except Exception:
-                    pass
-                time.sleep(1.5)  # 每次请求间隔 1.5s
+                expired_keys.append((code, days))
+
+    if expired_keys:
+        # 清除 LRU 缓存，使后续 fetch_etf_history 真正穿透到 API
+        fetch_etf_history.cache_clear()
+        fetch_benchmark_history.cache_clear()
+        logger.info(f"K 线 LRU 缓存已清除，待刷新 {len(expired_keys)} 条过期数据")
+
+        for code, days in expired_keys:
+            try:
+                fetch_etf_history(code, days)
+                hist_refreshed += 1
+            except Exception:
+                pass
+            time.sleep(1.5)  # 每次请求间隔 1.5s
+
     if hist_refreshed:
         logger.info(f"刷新: {hist_refreshed} 条 K 线数据")
 
